@@ -106,4 +106,5 @@ void flush(vector<vector<uint32_t>> &maps)
         }
         fprintf(cfg.report, "}, ");
     }
+    fflush(cfg.report);
 }
