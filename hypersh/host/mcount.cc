@@ -13,7 +13,7 @@ enum mcount_mode
 
 struct mcount_config_t
 {
-    mcount_mode mode;
+    mcount_mode mode = MCOUNT_OFF;
     FILE *report;
     uint32_t mem_bin, acc_bin;
     uint32_t total_mem;
@@ -31,13 +31,13 @@ static uint32_t acc_cnt, acc_io;
 
 static void flush(vector<vector<uint32_t>> &maps);
 
-bool hypercall_mcount_init(FILE *report, uint32_t total_mem, uint32_t ncores,
+bool hypercall_mcount_init(char *report, uint32_t total_mem, uint32_t ncores,
                            uint32_t mem_bin, uint32_t acc_bin)
 {
     if (report == NULL)
-        return false;
+        cfg.report = stderr;
 
-    cfg.report = report;
+    cfg.report = fopen(report, "w");
     cfg.total_mem = total_mem;
     cfg.mem_bin = mem_bin;
     cfg.acc_bin = acc_bin;
@@ -65,9 +65,22 @@ bool hypercall_mcount_init(FILE *report, uint32_t total_mem, uint32_t ncores,
     return true;
 }
 
+void hypercall_mcount_fini()
+{
+    if (cfg.report) {
+        fclose(cfg.report);
+        cfg.report = NULL;
+    }
+
+    cfg.mode = MCOUNT_OFF;
+}
+
 void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
                          uint64_t vaddr)
 {
+    if (cfg.mode == MCOUNT_OFF)
+        return;
+
     acc_cnt ++;
 
     auto hwaddr = qemu_plugin_get_hwaddr(meminfo, vaddr);

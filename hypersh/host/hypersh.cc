@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <vector>
 #include <map>
+#include <glib.h>
 
 #include "common.h"
 #include "mcount.h"
@@ -25,7 +26,8 @@ static enum qemu_plugin_mem_rw rw = QEMU_PLUGIN_MEM_RW;
 static char buf[128] = "";
 static uint64_t hypersh_mode = 0;
 
-#define HS_MODE_MCOUNT      (1 << 0)
+#define HS_MODE_PMEM        (1 << 0)
+#define HS_MODE_MCOUNT      (1 << 1)
 
 /* ------------------------------------------------------------------------- */
 /* pmem hypercall. */
@@ -35,14 +37,13 @@ static uint64_t hypersh_mode = 0;
 #define HS_PMEM_USER        0x8
 typedef uint8_t hc_pmem_attr_t;
 
-static bool hc_pmem_on = false;
 static uint32_t hc_pmem_int;
 static hc_pmem_attr_t hc_pmem_attr;
 static FILE *hc_pmem_file;
 static uint32_t hc_pmem_count;
 
-static void hypercall_pmem(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
-                           uint64_t vaddr)
+static void hypercall_pmem_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
+                              uint64_t vaddr)
 {
     struct qemu_plugin_hwaddr *hwaddr;
     uint64_t paddr;
@@ -74,8 +75,6 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                             uint64_t a3, uint64_t a4, uint64_t a5,
                             uint64_t a6, uint64_t a7, uint64_t a8)
 {
-    char *hc, *arg;
-
     if (num == HYPERCALL_MAGIC) {
         if (!qemu_plugin_virt_mem_rw(a1, buf, 127, false, false)) {
             fprintf(stderr,
@@ -84,38 +83,47 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
         }
         fprintf(stderr, "guest> %s", buf);
 
-        hc = strtok(buf, " \n");
-        if (hc == NULL)
+
+        int hyper_argc, c;
+        char **hyper_argv;
+        if (!g_shell_parse_argv(buf, &hyper_argc, &hyper_argv, NULL))
             return;
 
-        if (!strcmp(hc, "pmem")) {
-            arg = strtok(NULL, " \n");
-            if (arg && !strcmp(arg, "on")) {
-                hc_pmem_on = true;
-                hc_pmem_int = 10000;
-                hc_pmem_attr = 0xF;
-                hc_pmem_file = stderr;
-                hc_pmem_count = 0;
-            } else if (arg && !strcmp(arg, "off")) {
-                hc_pmem_on = false;
-            } else {
-                fprintf(stderr, "Unknown argument for pmem\n");
+        if (!strcmp(hyper_argv[0], "pmem")) {
+            hc_pmem_int = 10000;
+            hc_pmem_attr = 0xF;
+            hc_pmem_file = stderr;
+            hc_pmem_count = 0;
+            hypersh_mode |= HS_MODE_PMEM;
+        } else if (!strcmp(hyper_argv[0], "mcount")) {
+            uint32_t total_mem = 2 << 30;
+            uint32_t ncores = 2;
+            uint32_t mem_bin = 16 << 20;
+            uint32_t acc_bin = 100;
+            char *filename = NULL;
+            while ((c = getopt(hyper_argc, hyper_argv, "f:a:m:")) != -1) {
+                switch (c) {
+                    case 'm':
+                        mem_bin = strtol(optarg, NULL, 0) << 20;
+                        break;
+                    case 'a':
+                        acc_bin = strtol(optarg, NULL, 0);
+                        break;
+                    case 'f':
+                        filename = optarg;
+                }
             }
-        } else if (!strcmp(hc, "mcount")) {
-            arg = strtok(NULL, " \n");
-            if (arg && !strcmp(arg, "on")) {
-                uint32_t total_mem = 2 << 30;
-                uint32_t ncores = 2;
-                uint32_t mem_bin = 16 << 20;
-                uint32_t acc_bin = 100;
-                hypercall_mcount_init(stderr, total_mem, ncores, mem_bin, acc_bin);
-                hypersh_mode |= HS_MODE_MCOUNT;
-            } else if (arg && !strcmp(arg, "off")) {
-                hypersh_mode &= ~HS_MODE_MCOUNT;
-            } else {
-                fprintf(stderr, "Unknown argument for mcount\n");
-            }
+            optind = 0;
+            hypercall_mcount_init(filename, total_mem, ncores, mem_bin, acc_bin);
+            hypersh_mode |= HS_MODE_MCOUNT;
+        } else if (!strcmp(hyper_argv[0], "stop")) {
+            if (hyper_argc == 1 || !strcmp(hyper_argv[1], "pmem"))
+                hypersh_mode &= ~HS_MODE_PMEM;
 
+            if (hyper_argc == 1 || !strcmp(hyper_argv[1], "mcount")) {
+                hypersh_mode &= ~HS_MODE_MCOUNT;
+                hypercall_mcount_fini();
+            }
         }
     }
 }
@@ -123,8 +131,8 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
 static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
                      uint64_t vaddr, void *udata)
 {
-    if (hc_pmem_on)
-        hypercall_pmem(cpu_index, meminfo, vaddr);
+    if (hypersh_mode & HS_MODE_PMEM)
+        hypercall_pmem_cb(cpu_index, meminfo, vaddr);
 
     if (hypersh_mode & HS_MODE_MCOUNT)
         hypercall_mcount_cb(cpu_index, meminfo, vaddr);
