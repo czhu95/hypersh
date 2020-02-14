@@ -7,16 +7,15 @@
 
 #define __STDC_FORMAT_MACROS
 
-#include <inttypes.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <vector>
 #include <map>
 
-#include <qemu-plugin.h>
+#include "common.h"
+#include "mcount.h"
 
 #define HYPERCALL_MAGIC 712
 
@@ -24,13 +23,16 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 static enum qemu_plugin_mem_rw rw = QEMU_PLUGIN_MEM_RW;
 static char buf[128] = "";
+static uint64_t hypersh_mode = 0;
+
+#define HS_MODE_MCOUNT      (1 << 0)
 
 /* ------------------------------------------------------------------------- */
 /* pmem hypercall. */
-#define HC_PMEM_READ        0x1
-#define HC_PMEM_WRITE       0x2
-#define HC_PMEM_KERNEL      0x4
-#define HC_PMEM_USER        0x8
+#define HS_PMEM_READ        0x1
+#define HS_PMEM_WRITE       0x2
+#define HS_PMEM_KERNEL      0x4
+#define HS_PMEM_USER        0x8
 typedef uint8_t hc_pmem_attr_t;
 
 static bool hc_pmem_on = false;
@@ -55,8 +57,8 @@ static void hypercall_pmem(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
         is_store = qemu_plugin_mem_is_store(meminfo);
         is_kernel = qemu_plugin_in_kernel();
 
-        attr = (is_store ? HC_PMEM_WRITE : HC_PMEM_READ) |
-               (is_kernel ? HC_PMEM_KERNEL : HC_PMEM_USER);
+        attr = (is_store ? HS_PMEM_WRITE : HS_PMEM_READ) |
+               (is_kernel ? HS_PMEM_KERNEL : HS_PMEM_USER);
 
         if (hc_pmem_attr & attr)
             fprintf(hc_pmem_file,
@@ -66,16 +68,6 @@ static void hypercall_pmem(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
 
 }
 /* ------------------------------------------------------------------------- */
-
-// static FILE *hc_mcount_file;
-static std::vector<uint32_t> kmap, umap;
-
-static void hypercall_mcount(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
-                             uint64_t vaddr)
-{
-    kmap.clear();
-    umap.clear();
-}
 
 static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                             int64_t num, uint64_t a1, uint64_t a2,
@@ -109,6 +101,21 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             } else {
                 fprintf(stderr, "Unknown argument for pmem\n");
             }
+        } else if (!strcmp(hc, "mcount")) {
+            arg = strtok(NULL, " \n");
+            if (arg && !strcmp(arg, "on")) {
+                uint32_t total_mem = 2 << 30;
+                uint32_t ncores = 2;
+                uint32_t mem_bin = 16 << 20;
+                uint32_t acc_bin = 100;
+                hypercall_mcount_init(stderr, total_mem, ncores, mem_bin, acc_bin);
+                hypersh_mode |= HS_MODE_MCOUNT;
+            } else if (arg && !strcmp(arg, "off")) {
+                hypersh_mode &= ~HS_MODE_MCOUNT;
+            } else {
+                fprintf(stderr, "Unknown argument for mcount\n");
+            }
+
         }
     }
 }
@@ -119,8 +126,8 @@ static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
     if (hc_pmem_on)
         hypercall_pmem(cpu_index, meminfo, vaddr);
 
-    if (false)
-        hypercall_mcount(cpu_index, meminfo, vaddr);
+    if (hypersh_mode & HS_MODE_MCOUNT)
+        hypercall_mcount_cb(cpu_index, meminfo, vaddr);
 }
 
 
