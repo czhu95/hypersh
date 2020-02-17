@@ -81,7 +81,7 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                     "Fail to read guest virtual memory 0x%" PRIx64 "\n", a1);
             return;
         }
-        fprintf(stderr, "guest> %s", buf);
+        fprintf(stdout, "guest> %s", buf);
 
 
         int hyper_argc, c;
@@ -96,8 +96,8 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             hc_pmem_count = 0;
             hypersh_mode |= HS_MODE_PMEM;
         } else if (!strcmp(hyper_argv[0], "mcount")) {
-            uint32_t total_mem = 2 << 30;
-            uint32_t ncores = 2;
+            uint32_t total_mem = qemu_plugin_get_ram_size();
+            uint32_t cpus = qemu_plugin_get_cpus();
             uint32_t mem_bin = 16 << 20;
             uint32_t acc_bin = 100;
             char *filename = NULL;
@@ -114,7 +114,7 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                 }
             }
             optind = 0;
-            hypercall_mcount_init(filename, total_mem, ncores, mem_bin, acc_bin);
+            hypercall_mcount_init(filename, total_mem, cpus, mem_bin, acc_bin);
             hypersh_mode |= HS_MODE_MCOUNT;
         } else if (!strcmp(hyper_argv[0], "stop")) {
             if (hyper_argc == 1 || !strcmp(hyper_argv[1], "pmem"))

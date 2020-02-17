@@ -34,10 +34,7 @@ static void flush(vector<vector<uint32_t>> &maps);
 bool hypercall_mcount_init(char *report, uint32_t total_mem, uint32_t ncores,
                            uint32_t mem_bin, uint32_t acc_bin)
 {
-    if (report == NULL)
-        cfg.report = stderr;
-
-    cfg.report = fopen(report, "w");
+    cfg.report = report ? fopen(report, "w") : stdout;
     cfg.total_mem = total_mem;
     cfg.mem_bin = mem_bin;
     cfg.acc_bin = acc_bin;
@@ -68,7 +65,8 @@ bool hypercall_mcount_init(char *report, uint32_t total_mem, uint32_t ncores,
 void hypercall_mcount_fini()
 {
     if (cfg.report) {
-        fclose(cfg.report);
+        if (cfg.report != stdout)
+            fclose(cfg.report);
         cfg.report = NULL;
     }
 
