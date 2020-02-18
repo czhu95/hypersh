@@ -14,6 +14,7 @@
 #include <vector>
 #include <map>
 #include <glib.h>
+#include <atomic>
 
 #include "common.h"
 #include "mcount.h"
@@ -25,7 +26,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 static enum qemu_plugin_mem_rw rw = QEMU_PLUGIN_MEM_RW;
 static char buf[128] = "";
-static uint64_t hypersh_mode = 0;
+static std::atomic_uint64_t hypersh_mode = 0;
 
 #define HS_MODE_PMEM        (1 << 0)
 #define HS_MODE_MCOUNT      (1 << 1)
@@ -50,6 +51,9 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             return;
 
         if (!strcmp(hyper_argv[0], "pmem")) {
+            if (hypersh_mode & HS_MODE_PMEM)
+                return;
+
             uint32_t interval = 10000;
             uint32_t attr = 0;
             char *filename = NULL;
@@ -77,6 +81,9 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             hypersh_mode |= HS_MODE_PMEM;
         } else if (!strcmp(hyper_argv[0], "mcount")) {
             uint32_t total_mem = qemu_plugin_get_ram_size();
+            if (hypersh_mode & HS_MODE_MCOUNT)
+                return;
+
             uint32_t cpus = qemu_plugin_get_cpus();
             uint32_t mem_bin = 16 << 20;
             uint32_t acc_bin = 100;
