@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 #include <map>
+#include <shared_mutex>
+#include <atomic>
 
 #include "mcount.h"
 
@@ -22,12 +24,15 @@ struct mcount_config_t
 
 using std::vector;
 using std::map;
+using std::shared_mutex;
 
 static mcount_config_t cfg;
 
 static vector<vector<uint32_t>> kmaps, umaps;
 static map<std::string, uint32_t> tags;
-static uint32_t acc_cnt, acc_io;
+static std::atomic_uint32_t acc_cnt, acc_io_cnt;
+
+static shared_mutex flush_mtx;
 
 static void flush(vector<vector<uint32_t>> &maps);
 
@@ -46,18 +51,18 @@ bool hypercall_mcount_init(char *report, uint32_t total_mem, uint32_t ncores,
     umaps.resize(ncores);
 
     for (auto& maps: kmaps) {
-        maps.clear();
-        maps.resize(total_mem / mem_bin, 0);
+        maps.resize(total_mem / mem_bin);
+        std::fill(maps.begin(), maps.end(), 0);
     }
 
     for (auto& maps: umaps) {
-        maps.clear();
-        maps.resize(total_mem / mem_bin, 0);
+        maps.resize(total_mem / mem_bin);
+        std::fill(maps.begin(), maps.end(), 0);
     }
 
     tags.clear();
     acc_cnt = 0;
-    acc_io = 0;
+    acc_io_cnt = 0;
 
     return true;
 }
@@ -65,6 +70,7 @@ bool hypercall_mcount_init(char *report, uint32_t total_mem, uint32_t ncores,
 void hypercall_mcount_fini()
 {
     if (cfg.report) {
+        std::shared_lock lock(flush_mtx);
         if (cfg.report != stdout)
             fclose(cfg.report);
         cfg.report = NULL;
@@ -89,6 +95,7 @@ void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
     auto is_kernel = qemu_plugin_in_kernel();
 
     if (acc_cnt % cfg.acc_bin == 0) {
+        std::unique_lock lock(flush_mtx);
         fprintf(cfg.report, "K = {");
         flush(kmaps);
         fprintf(cfg.report, "}; U = {");
@@ -97,10 +104,12 @@ void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
     }
 
     if (is_io) {
-        acc_io ++;
+        acc_io_cnt ++;
     } else if (is_kernel) {
+        std::shared_lock lock(flush_mtx);
         kmaps[cpu_id][paddr / cfg.mem_bin] ++;
     } else {
+        std::shared_lock lock(flush_mtx);
         umaps[cpu_id][paddr / cfg.mem_bin] ++;
     }
 }
