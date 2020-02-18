@@ -18,7 +18,7 @@ struct mcount_config_t
     mcount_mode mode = MCOUNT_OFF;
     FILE *report;
     uint32_t mem_bin, acc_bin;
-    uint32_t total_mem;
+    uint64_t total_mem;
     uint32_t ncores;
 };
 
@@ -36,7 +36,7 @@ static shared_mutex flush_mtx;
 
 static void flush(vector<vector<uint32_t>> &maps);
 
-bool hypercall_mcount_init(char *report, uint32_t total_mem, uint32_t ncores,
+bool hypercall_mcount_init(char *report, uint64_t total_mem, uint32_t ncores,
                            uint32_t mem_bin, uint32_t acc_bin)
 {
     cfg.report = report ? fopen(report, "w") : stdout;
@@ -88,7 +88,7 @@ void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
     acc_cnt ++;
 
     auto hwaddr = qemu_plugin_get_hwaddr(meminfo, vaddr);
-    auto paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
+    uint64_t paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
 
     // auto is_store = qemu_plugin_mem_is_store(meminfo);
     auto is_io = qemu_plugin_hwaddr_is_io(hwaddr);
