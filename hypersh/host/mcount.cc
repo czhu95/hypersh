@@ -47,6 +47,11 @@ bool hypercall_mcount_init(char *report, uint64_t total_mem, uint32_t ncores,
     cfg.mode = MCOUNT_ON;
     cfg.ncores = ncores;
 
+    fprintf(cfg.report, "cfg = {\"report\": %s, \"total_mem\": %" PRIu64 ", "
+            "\"mem_bin\": %u, \"acc_bin\": %u, \"ncores\": %u}\n",
+            report ? report : "stdout", cfg.total_mem, cfg.mem_bin,
+            cfg.acc_bin, cfg.ncores);
+
     kmaps.resize(ncores);
     umaps.resize(ncores);
 
