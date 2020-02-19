@@ -30,7 +30,7 @@ static mcount_config_t cfg;
 
 static vector<vector<uint32_t>> kmaps, umaps;
 static map<std::string, uint32_t> tags;
-static std::atomic_uint32_t acc_cnt, acc_io_cnt;
+static std::atomic_uint64_t acc_cnt, acc_io_cnt;
 
 static shared_mutex flush_mtx;
 
@@ -74,14 +74,15 @@ bool hypercall_mcount_init(char *report, uint64_t total_mem, uint32_t ncores,
 
 void hypercall_mcount_fini()
 {
+    cfg.mode = MCOUNT_OFF;
     if (cfg.report) {
         std::shared_lock lock(flush_mtx);
+        fprintf(cfg.report, "acc_cnt = %lu; acc_io_cnt = %lu\n",
+                uint64_t(acc_cnt), uint64_t(acc_io_cnt));
         if (cfg.report != stdout)
             fclose(cfg.report);
         cfg.report = NULL;
     }
-
-    cfg.mode = MCOUNT_OFF;
 }
 
 void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
@@ -90,8 +91,6 @@ void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
     if (cfg.mode == MCOUNT_OFF)
         return;
 
-    acc_cnt ++;
-
     auto hwaddr = qemu_plugin_get_hwaddr(meminfo, vaddr);
     uint64_t paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
 
@@ -99,8 +98,11 @@ void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
     auto is_io = qemu_plugin_hwaddr_is_io(hwaddr);
     auto is_kernel = qemu_plugin_in_kernel();
 
-    if (acc_cnt % cfg.acc_bin == 0) {
+    if (++acc_cnt % cfg.acc_bin == 0) {
         std::unique_lock lock(flush_mtx);
+        if (cfg.mode == MCOUNT_OFF)
+            return;
+
         fprintf(cfg.report, "K = {");
         flush(kmaps);
         fprintf(cfg.report, "}; U = {");
