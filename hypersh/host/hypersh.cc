@@ -42,7 +42,7 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                     "Fail to read guest virtual memory 0x%" PRIx64 "\n", a1);
             return;
         }
-        fprintf(stdout, "guest> %s", buf);
+        fprintf(stdout, "guest> %s\n", buf);
 
 
         int hyper_argc, c;
