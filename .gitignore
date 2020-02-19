@@ -1,0 +1,7 @@
+*.d
+*.od
+*.o
+*.so
+*.sod
+hypersh
+qemu-plugin.h
