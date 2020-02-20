@@ -15,4 +15,6 @@ void hypercall_mcount_fini();
 void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
                          uint64_t vaddr);
 
+void hypercall_mcount_tag(const char *tag);
+
 #endif

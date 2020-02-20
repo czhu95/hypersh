@@ -1,10 +1,3 @@
-/*
- * Copyright (C) 2018, Emilio G. Cota <cota@braap.org>
- *
- * License: GNU GPL, version 2 or later.
- *   See the COPYING file in the top-level directory.
- */
-
 #define __STDC_FORMAT_MACROS
 
 #include <assert.h>
@@ -80,15 +73,14 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             hypercall_pmem_init(filename, interval, attr);
             hypersh_mode |= HS_MODE_PMEM;
         } else if (!strcmp(hyper_argv[0], "mcount")) {
-            if (hypersh_mode & HS_MODE_MCOUNT)
-                return;
-
             uint64_t total_mem = qemu_plugin_get_ram_size();
             uint32_t cpus = qemu_plugin_get_cpus();
             uint32_t mem_bin = 16 << 20;
             uint32_t acc_bin = 100;
             char *filename = NULL;
-            while ((c = getopt(hyper_argc, hyper_argv, "f:a:m:")) != -1) {
+            char *tag = NULL;
+            bool init = true;
+            while ((c = getopt(hyper_argc, hyper_argv, "f:a:m:t:")) != -1) {
                 switch (c) {
                     case 'm':
                         mem_bin = strtol(optarg, NULL, 0) << 20;
@@ -98,11 +90,22 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                         break;
                     case 'f':
                         filename = optarg;
+                        break;
+                    case 't':
+                        tag = optarg;
+                        init = false;
+                        break;
                 }
             }
             optind = 0;
-            hypercall_mcount_init(filename, total_mem, cpus, mem_bin, acc_bin);
-            hypersh_mode |= HS_MODE_MCOUNT;
+            if (init) {
+                if (hypercall_mcount_init(filename, total_mem, cpus,
+                                          mem_bin, acc_bin)) {
+                    hypersh_mode |= HS_MODE_MCOUNT;
+                }
+            } else {
+                hypercall_mcount_tag(tag);
+            }
         } else if (!strcmp(hyper_argv[0], "stop")) {
             if (hyper_argc == 1 || !strcmp(hyper_argv[1], "pmem")) {
                 hypersh_mode &= ~HS_MODE_PMEM;

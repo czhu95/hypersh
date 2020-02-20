@@ -29,7 +29,7 @@ using std::shared_mutex;
 static mcount_config_t cfg;
 
 static vector<vector<uint32_t>> kmaps, umaps;
-static map<std::string, uint32_t> tags;
+static map<std::string, uint64_t> tags;
 static std::atomic_uint64_t acc_cnt, acc_io_cnt;
 
 static shared_mutex flush_mtx;
@@ -77,6 +77,11 @@ void hypercall_mcount_fini()
     cfg.mode = MCOUNT_OFF;
     if (cfg.report) {
         std::shared_lock lock(flush_mtx);
+        fprintf(cfg.report, "tags = {");
+        for (const auto &tag : tags)
+            fprintf(cfg.report, "\"%s\": %lu, ", tag.first.c_str(),
+                    tag.second);
+        fprintf(cfg.report, "}\n");
         fprintf(cfg.report, "acc_cnt = %lu; acc_io_cnt = %lu\n",
                 uint64_t(acc_cnt), uint64_t(acc_io_cnt));
         if (cfg.report != stdout)
@@ -119,6 +124,11 @@ void hypercall_mcount_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
         std::shared_lock lock(flush_mtx);
         umaps[cpu_id][paddr / cfg.mem_bin] ++;
     }
+}
+
+void hypercall_mcount_tag(const char *tag)
+{
+    tags[tag] = uint64_t(acc_cnt);
 }
 
 void flush(vector<vector<uint32_t>> &maps)
