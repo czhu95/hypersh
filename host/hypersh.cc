@@ -73,8 +73,8 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             hypercall_pmem_init(filename, interval, attr);
             hypersh_mode |= HS_MODE_PMEM;
         } else if (!strcmp(hyper_argv[0], "mcount")) {
-            uint64_t total_mem = qemu_plugin_get_ram_size();
-            uint32_t cpus = qemu_plugin_get_cpus();
+            uint64_t total_mem = qemu_plugin_ram_size();
+            uint32_t cpus = qemu_plugin_n_vcpus();
             uint32_t mem_bin = 16 << 20;
             uint32_t acc_bin = 100;
             char *filename = NULL;
