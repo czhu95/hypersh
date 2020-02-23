@@ -8,6 +8,7 @@
 #include <map>
 #include <glib.h>
 #include <atomic>
+#include <string>
 
 #include "common.h"
 #include "mcount.h"
@@ -17,12 +18,7 @@
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
-static enum qemu_plugin_mem_rw rw = QEMU_PLUGIN_MEM_RW;
 static char buf[128] = "";
-static std::atomic_uint64_t hypersh_mode = 0;
-
-#define HS_MODE_PMEM        (1 << 0)
-#define HS_MODE_MCOUNT      (1 << 1)
 
 static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                             int64_t num, uint64_t a1, uint64_t a2,
@@ -38,110 +34,31 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
         fprintf(stdout, "guest> %s\n", buf);
 
 
-        int hyper_argc, c;
+        int hyper_argc;
         char **hyper_argv;
-        if (!g_shell_parse_argv(buf, &hyper_argc, &hyper_argv, NULL))
+        if (!g_shell_parse_argv(buf, &hyper_argc, &hyper_argv, NULL) ||
+            hyper_argc == 0)
             return;
 
-        if (!strcmp(hyper_argv[0], "pmem")) {
-            if (hypersh_mode & HS_MODE_PMEM)
-                return;
-
-            uint32_t interval = 10000;
-            uint32_t attr = 0;
-            char *filename = NULL;
-            while ((c = getopt(hyper_argc, hyper_argv, "f:kurw")) != -1) {
-                switch (c) {
-                    case 'k':
-                        attr |= HS_PMEM_KERNEL;
-                        break;
-                    case 'u':
-                        attr |= HS_PMEM_USER;
-                        break;
-                    case 'r':
-                        attr |= HS_PMEM_READ;
-                        break;
-                    case 'w':
-                        attr |= HS_PMEM_WRITE;
-                        break;
-                    case 'f':
-                        filename = optarg;
-                }
-            }
-            optind = 0;
-            fprintf(stderr, "pmem_mode: %x\n", attr);
-            hypercall_pmem_init(filename, interval, attr);
-            hypersh_mode |= HS_MODE_PMEM;
-        } else if (!strcmp(hyper_argv[0], "mcount")) {
-            uint64_t total_mem = qemu_plugin_ram_size();
-            uint32_t cpus = qemu_plugin_n_vcpus();
-            uint32_t mem_bin = 16 << 20;
-            uint32_t acc_bin = 100;
-            char *filename = NULL;
-            char *tag = NULL;
-            bool init = true;
-            while ((c = getopt(hyper_argc, hyper_argv, "f:a:m:t:")) != -1) {
-                switch (c) {
-                    case 'm':
-                        mem_bin = strtol(optarg, NULL, 0) << 20;
-                        break;
-                    case 'a':
-                        acc_bin = strtol(optarg, NULL, 0);
-                        break;
-                    case 'f':
-                        filename = optarg;
-                        break;
-                    case 't':
-                        tag = optarg;
-                        init = false;
-                        break;
-                }
-            }
-            optind = 0;
-            if (init) {
-                if (hypercall_mcount_init(filename, total_mem, cpus,
-                                          mem_bin, acc_bin)) {
-                    hypersh_mode |= HS_MODE_MCOUNT;
-                }
-            } else {
-                hypercall_mcount_tag(tag);
-            }
-        } else if (!strcmp(hyper_argv[0], "stop")) {
-            if (hyper_argc == 1 || !strcmp(hyper_argv[1], "pmem")) {
-                hypersh_mode &= ~HS_MODE_PMEM;
-                hypercall_pmem_fini();
-            }
-
-            if (hyper_argc == 1 || !strcmp(hyper_argv[1], "mcount")) {
-                hypersh_mode &= ~HS_MODE_MCOUNT;
-                hypercall_mcount_fini();
-            }
+        if (!strcmp(hyper_argv[0], "debug")) {
+            qemu_plugin_id_t pmem_id = qemu_plugin_find_id("/libpmem.so");
+            fprintf(stdout, "%lu\n", pmem_id);
+            qemu_plugin_send_control(pmem_id, hyper_argc - 1, hyper_argv + 1);
+            return;
         }
-    }
-}
 
-static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
-                     uint64_t vaddr, void *udata)
-{
-    if (hypersh_mode & HS_MODE_PMEM)
-        hypercall_pmem_cb(cpu_index, meminfo, vaddr);
+        auto soname = std::string("/lib") + hyper_argv[0] + ".so";
+        auto target_id = qemu_plugin_find_id(soname.c_str());
+        if (target_id == QEMU_PLUGIN_ID_NULL) {
+            fprintf(stderr, "Unloaded plugin %s\n", hyper_argv[0]);
+            return;
+        }
 
-    if (hypersh_mode & HS_MODE_MCOUNT)
-        hypercall_mcount_cb(cpu_index, meminfo, vaddr);
-}
-
-
-
-static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
-{
-    size_t n = qemu_plugin_tb_n_insns(tb);
-    size_t i;
-
-    for (i = 0; i < n; i++) {
-        struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
-        qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem,
-                                         QEMU_PLUGIN_CB_NO_REGS,
-                                         rw, NULL);
+        if (qemu_plugin_send_control(
+                    target_id, hyper_argc, hyper_argv) == -1) {
+            fprintf(stderr, "Failed sending control to %s\n", hyper_argv[0]);
+            return;
+        }
     }
 }
 
@@ -150,7 +67,5 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
                                            int argc, char **argv)
 {
     qemu_plugin_register_vcpu_syscall_cb(id, vcpu_syscall_cb);
-    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
-    // qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     return 0;
 }

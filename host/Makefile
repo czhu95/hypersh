@@ -7,12 +7,10 @@ DEPFILES := $(SRCS:%.cc=%.d)
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
 	CXXFLAGS += -DDEBUG -g -O0
-	SONAME = libhypersh.sod
-	OBJECTS = $(patsubst %.cc,%.od,$(SRCS))
+	SONAME = $(addprefix lib, $(patsubst %.cc,%.sod,$(SRCS)))
 else
 	CXXFLAGS += -O2
-	SONAME = libhypersh.so
-	OBJECTS = $(patsubst %.cc,%.o,$(SRCS))
+	SONAME = $(addprefix lib, $(patsubst %.cc,%.so,$(SRCS)))
 endif
 
 CXXFLAGS += -std=c++17 -D__STDC_LIMIT_MACROS -Werror -DPIE -m64 -mcx16 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Wall -Wundef -Wwrite-strings -fno-strict-aliasing -fno-common -fwrapv -Wexpansion-to-defined -Wendif-labels -Wno-shift-negative-value -Wno-missing-include-dirs -Wempty-body -Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers -Wtype-limits -fstack-protector-strong -fPIC
@@ -28,7 +26,10 @@ all: $(LN_QEMU_PLUGIN_H) $(SONAME)
 $(LN_QEMU_PLUGIN_H):
 	ln -s $(QEMU_PLUGIN_H) $(LN_QEMU_PLUGIN_H)
 
-$(SONAME): $(OBJECTS)
+lib%.so: %.o
+	$(CXX) -shared -Wl,-soname,$@ -o $@ $^ $(LDFLAGS)
+
+lib%.sod: %.od
 	$(CXX) -shared -Wl,-soname,$@ -o $@ $^ $(LDFLAGS)
 
 %.o: %.cc %.d

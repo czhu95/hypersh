@@ -1,6 +1,10 @@
+#define __STDC_FORMAT_MACROS
 #include <mutex>
+#include <string.h>
 
 #include "pmem.h"
+
+QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 enum pmem_mode
 {
@@ -16,8 +20,8 @@ static pmem_mode mode;
 
 static std::mutex file_lock, count_lock;
 
-bool hypercall_pmem_init(char *filename, uint32_t hc_pmem_int,
-                         hc_pmem_attr_t hc_pmem_attr)
+static bool hypercall_pmem_init(char *filename, uint32_t hc_pmem_int,
+                                hc_pmem_attr_t hc_pmem_attr)
 {
     pmem_file = filename ? fopen(filename, "w") : stdout;
     pmem_int = hc_pmem_int;
@@ -27,7 +31,7 @@ bool hypercall_pmem_init(char *filename, uint32_t hc_pmem_int,
     return true;
 }
 
-void hypercall_pmem_fini()
+static void hypercall_pmem_fini()
 {
     if (pmem_file) {
         if (pmem_file != stdout)
@@ -38,8 +42,8 @@ void hypercall_pmem_fini()
     mode = PMEM_OFF;
 }
 
-void hypercall_pmem_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
-                       uint64_t vaddr)
+static void hypercall_pmem_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
+                              uint64_t vaddr)
 {
     if (mode == PMEM_OFF)
         return;
@@ -71,7 +75,88 @@ void hypercall_pmem_cb(unsigned int cpu_id, qemu_plugin_meminfo_t meminfo,
     } else {
         count_lock.unlock();
     }
-
 }
 
+static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
+                     uint64_t vaddr, void *udata)
+{
+    hypercall_pmem_cb(cpu_index, meminfo, vaddr);
+}
 
+static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
+{
+    size_t n = qemu_plugin_tb_n_insns(tb);
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
+        qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem,
+                                         QEMU_PLUGIN_CB_NO_REGS,
+                                         QEMU_PLUGIN_MEM_RW, NULL);
+    }
+}
+
+QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
+                                           int argc, char **argv)
+{
+    fprintf(stdout, "pmem control\n");
+    for (auto i = 0; i < argc; i ++)
+        fprintf(stdout, "%s\n", argv[i]);
+
+    if (argc == 0 || strcmp(argv[0], "pmem")) {
+        fprintf(stderr, "Misdirected control for %s\n", argv[0]);
+        return -1;
+    }
+
+    argc --;
+    argv ++;
+
+    if (argc == 0 || !strcmp(argv[0], "start")) {
+        uint32_t interval = 10000;
+        uint32_t attr = 0;
+        char *filename = NULL;
+        int c;
+        while ((c = getopt(argc, argv, "f:kurw")) != -1) {
+            switch (c) {
+                case 'k':
+                    attr |= HS_PMEM_KERNEL;
+                    break;
+                case 'u':
+                    attr |= HS_PMEM_USER;
+                    break;
+                case 'r':
+                    attr |= HS_PMEM_READ;
+                    break;
+                case 'w':
+                    attr |= HS_PMEM_WRITE;
+                    break;
+                case 'f':
+                    filename = optarg;
+            }
+        }
+        optind = 0;
+        fprintf(stderr, "pmem_mode: %x\n", attr);
+
+        hypercall_pmem_init(filename, interval, attr);
+        qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+        qemu_plugin_tb_flush();
+    } else if (!strcmp(argv[0], "stop")) {
+        hypercall_pmem_fini();
+        qemu_plugin_reset(id, NULL);
+    } else {
+        return -1;
+    }
+
+    return 0;
+}
+
+QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
+                                           const qemu_info_t *info,
+                                           int argc, char **argv)
+{
+    fprintf(stdout, "pmem installed with id %lu\n", id);
+    for (auto i = 0; i < argc; i ++)
+        fprintf(stdout, "%s\n", argv[i]);
+
+    return 0;
+}
