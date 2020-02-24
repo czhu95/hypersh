@@ -15,6 +15,8 @@ endif
 
 CXXFLAGS += -std=c++17 -D__STDC_LIMIT_MACROS -Werror -DPIE -m64 -mcx16 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Wall -Wundef -Wwrite-strings -fno-strict-aliasing -fno-common -fwrapv -Wexpansion-to-defined -Wendif-labels -Wno-shift-negative-value -Wno-missing-include-dirs -Wempty-body -Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers -Wtype-limits -fstack-protector-strong -fPIC
 CXXFLAGS += -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include
+CXXFLAGS += -I/home/chenzhuo/dev/projects/sniper/sift
+CXXFLAGS += -I/home/chenzhuo/dev/projects/sniper/frontend
 LDFLAGS = -lglib-2.0
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
 
