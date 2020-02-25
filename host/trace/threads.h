@@ -1,9 +1,11 @@
 #ifndef HYPERSH_TRACE_H_
 #define HYPERSH_TRACE_H_
 
+#include <vector>
+
 #include "sift_writer.h"
+#include "globals.h"
 #include "bbv_count.h"
-#include "common.h"
 
 typedef uint32_t threadid_t;
 
@@ -12,8 +14,6 @@ typedef uint64_t ADDRINT;
 #else
 typedef uint32_t ADDRINT;
 #endif
-
-#define LINE_SIZE_BYTES 64
 
 typedef struct {
    Sift::Writer *output;
@@ -41,5 +41,7 @@ typedef struct {
    bool running;
    bool should_send_threadinfo;
 } __attribute__((packed,aligned(LINE_SIZE_BYTES))) thread_data_t;
+
+extern std::vector<thread_data_t> thread_data;
 
 #endif

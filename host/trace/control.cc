@@ -6,12 +6,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "trace.h"
+#include "threads.h"
+#include "globals.h"
+#include "common.h"
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 using std::vector;
 using std::string;
+
+vector<thread_data_t> thread_data;
+uint32_t smp_vcpus;
 
 enum trace_mode
 {
@@ -19,8 +24,6 @@ enum trace_mode
     TRACE_OFF
 };
 
-static int smp_vcpus;
-static vector<thread_data_t> thread_data;
 static vector<string> trace_files;
 static char output_dir_template[] = "/tmp/tmpXXXXXX";
 std::mutex access_memory_mtx;
@@ -80,7 +83,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
         /* Opening a fifo file blocks on waiting for a reader.
          * We Create fifos for all vcpus before open them, so we can invoke
          * the simulator process at some time in between. */
-        for (int i = 0; i < smp_vcpus; i ++) {
+        for (threadid_t i = 0; i < smp_vcpus; i ++) {
             auto filename = string(dir) + "/vcpu"
                             + std::to_string(i) + ".sift";
             auto response = string(dir) + "/response.vcpu"
@@ -92,11 +95,11 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
             trace_files.push_back(filename);
             trace_files.push_back(response);
         }
-        for (int i = 0; i < smp_vcpus; i ++)
+        for (threadid_t i = 0; i < smp_vcpus; i ++)
             openFile(i, dir);
 
     } else if (!strcmp(argv[optind], "stop")) {
-        for (int i = 0; i < smp_vcpus; i ++)
+        for (threadid_t i = 0; i < smp_vcpus; i ++)
             closeFile(i);
 
         for (const auto& f : trace_files)
@@ -104,42 +107,6 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
 
         trace_files.clear();
     }
-
-    // if (argc == 0 || !strcmp(argv[0], "start")) {
-    //     uint32_t interval = 10000;
-    //     uint32_t attr = 0;
-    //     char *filename = NULL;
-    //     int c;
-    //     while ((c = getopt(argc, argv, "f:kurw")) != -1) {
-    //         switch (c) {
-    //             case 'k':
-    //                 attr |= HS_PMEM_KERNEL;
-    //                 break;
-    //             case 'u':
-    //                 attr |= HS_PMEM_USER;
-    //                 break;
-    //             case 'r':
-    //                 attr |= HS_PMEM_READ;
-    //                 break;
-    //             case 'w':
-    //                 attr |= HS_PMEM_WRITE;
-    //                 break;
-    //             case 'f':
-    //                 filename = optarg;
-    //         }
-    //     }
-    //     optind = 0;
-    //     fprintf(stderr, "pmem_mode: %x\n", attr);
-
-    //     hypercall_pmem_init(filename, interval, attr);
-    //     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
-    //     qemu_plugin_tb_flush();
-    // } else if (!strcmp(argv[0], "stop")) {
-    //     hypercall_pmem_fini();
-    //     qemu_plugin_reset(id, NULL);
-    // } else {
-    //     return -1;
-    // }
 
     return 0;
 }
@@ -220,7 +187,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     smp_vcpus = info->system.smp_vcpus;
     thread_data.resize(smp_vcpus);
 
-    for (auto threadid = 0; threadid < smp_vcpus; threadid ++) {
+    for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
         thread_data[threadid].tid_ptr = 0;
         thread_data[threadid].thread_num = threadid;
         /* Since there is no cleanup function for plugins, bbv is never
