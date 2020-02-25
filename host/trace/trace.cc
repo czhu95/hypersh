@@ -85,9 +85,14 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
         for (int i = 0; i < smp_vcpus; i ++) {
             auto filename = string(dir) + "/vcpu"
                             + std::to_string(i) + ".sift";
+            auto response = string(dir) + "/response.vcpu"
+                            + std::to_string(i) + ".sift";
 
             mkfifo(filename.c_str(), 0600);
+            mkfifo(response.c_str(), 0600);
+
             trace_files.push_back(filename);
+            trace_files.push_back(response);
         }
         for (int i = 0; i < smp_vcpus; i ++)
             openFile(i, dir);
@@ -184,14 +189,14 @@ static int openFile(threadid_t threadid, const char *dir)
 
     auto filename = string(dir) + "/vcpu"
                     + std::to_string(threadid) + ".sift";
-    // auto response = string(dir) + "/response.vcpu"
-    //                 + std::to_string(threadid) + ".sift";
+    auto response = string(dir) + "/response.vcpu"
+                    + std::to_string(threadid) + ".sift";
 
     thread_data[threadid].output = new Sift::Writer(filename.c_str(),
             [](uint8_t *dst, const uint8_t *src, uint32_t size) {
                 qemu_plugin_virt_mem_rw((uint64_t)src, dst, size, false,
                                         qemu_plugin_in_kernel());
-            }, false, "", threadid, false, false, false);
+            }, true, response.c_str(), threadid, false, false, false);
 
     if (!thread_data[threadid].output->IsOpen()) {
         fprintf(stderr, "[SIFT_RECORDER: %u] Error: "
