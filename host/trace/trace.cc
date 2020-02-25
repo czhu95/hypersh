@@ -7,8 +7,6 @@
 #include <sys/stat.h>
 
 #include "trace.h"
-#include "sift_writer.h"
-#include "frontend_defs.h"
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
@@ -225,7 +223,10 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     for (auto threadid = 0; threadid < smp_vcpus; threadid ++) {
         thread_data[threadid].tid_ptr = 0;
         thread_data[threadid].thread_num = threadid;
-        thread_data[threadid].bbv = NULL;
+        /* Since there is no cleanup function for plugins, bbv is never
+         * deleted until qemu exits. We should be fine as bbv is reused and
+         * allocated only once per vcpu. */
+        thread_data[threadid].bbv = new Bbv();
         thread_data[threadid].blocknum = 0;
         thread_data[threadid].running = true;
     }

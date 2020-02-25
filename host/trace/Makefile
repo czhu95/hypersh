@@ -16,15 +16,12 @@ else
 	OBJECTS = $(patsubst %.cc,%.o,$(SRCS))
 endif
 
-CXXFLAGS += -std=c++17 -D__STDC_LIMIT_MACROS -Werror -DPIE -m64 -mcx16 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Wall -Wundef -Wwrite-strings -fno-strict-aliasing -fno-common -fwrapv -Wexpansion-to-defined -Wendif-labels -Wno-shift-negative-value -Wno-missing-include-dirs -Wempty-body -Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers -Wtype-limits -fstack-protector-strong -fPIC
+CXXFLAGS += -std=c++17 -DTARGET_X86_64 -D__STDC_LIMIT_MACROS -Werror -DPIE -m64 -mcx16 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Wall -Wundef -Wwrite-strings -fno-strict-aliasing -fno-common -fwrapv -Wexpansion-to-defined -Wendif-labels -Wno-shift-negative-value -Wno-missing-include-dirs -Wempty-body -Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers -Wtype-limits -fstack-protector-strong -fPIC
 CXXFLAGS += -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include
 CXXFLAGS += -I../
 CXXFLAGS += -I/home/chenzhuo/dev/projects/sniper/sift
-CXXFLAGS += -I/home/chenzhuo/dev/projects/sniper/frontend
-LDFLAGS = -lglib-2.0
+LDFLAGS = -L/home/chenzhuo/dev/projects/sniper/sift -lglib-2.0 -lsift
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
-
-LIB_SIFT = /home/chenzhuo/dev/projects/sniper/sift/libsift.a
 
 QEMU_PLUGIN_H := $(QEMU_PATH)/include/qemu/qemu-plugin.h
 LN_QEMU_PLUGIN_H := ../qemu-plugin.h
