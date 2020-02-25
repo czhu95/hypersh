@@ -28,6 +28,9 @@ all: $(LN_QEMU_PLUGIN_H) $(SONAME)
 $(LN_QEMU_PLUGIN_H):
 	ln -s $(QEMU_PLUGIN_H) $(LN_QEMU_PLUGIN_H)
 
+libtrace.so: trace.o /home/chenzhuo/dev/projects/sniper/sift/libsift.a
+	$(CXX) -shared -Wl,-soname,$@ -o $@ $^ $(LDFLAGS)
+
 lib%.so: %.o
 	$(CXX) -shared -Wl,-soname,$@ -o $@ $^ $(LDFLAGS)
 

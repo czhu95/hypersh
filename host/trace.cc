@@ -3,6 +3,8 @@
 #include <string.h>
 #include <vector>
 #include <assert.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "trace.h"
 #include "sift_writer.h"
@@ -19,9 +21,14 @@ enum trace_mode
     TRACE_OFF
 };
 
+static int smp_vcpus;
 static vector<thread_data_t> thread_data;
-static string output_file;
+static vector<string> trace_files;
+static char output_dir_template[] = "/tmp/tmpXXXXXX";
 std::mutex access_memory_mtx;
+
+static int openFile(threadid_t threadid, const char *dir);
+static int closeFile(threadid_t threadid);
 
 // static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
 //                      uint64_t vaddr, void *udata)
@@ -54,8 +61,46 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
         return -1;
     }
 
-    argc --;
-    argv ++;
+    int c;
+    char *dir = NULL;
+    while ((c = getopt(argc, argv, "d:")) != -1) {
+        switch (c) {
+            case 'd':
+                dir = optarg;
+                break;
+        }
+    }
+
+    if (optind >= argc || !strcmp(argv[optind], "start")) {
+        if (dir == NULL) {
+            dir = output_dir_template;
+            strcpy(dir + strlen(dir) - 6, "XXXXXX");
+            dir = mkdtemp(dir);
+            assert(dir != NULL);
+        }
+
+        /* Opening a fifo file blocks on waiting for a reader.
+         * We Create fifos for all vcpus before open them, so we can invoke
+         * the simulator process at some time in between. */
+        for (int i = 0; i < smp_vcpus; i ++) {
+            auto filename = string(dir) + "/vcpu"
+                            + std::to_string(i) + ".sift";
+
+            mkfifo(filename.c_str(), 0600);
+            trace_files.push_back(filename);
+        }
+        for (int i = 0; i < smp_vcpus; i ++)
+            openFile(i, dir);
+
+    } else if (!strcmp(argv[optind], "stop")) {
+        for (int i = 0; i < smp_vcpus; i ++)
+            closeFile(i);
+
+        for (const auto& f : trace_files)
+            unlink(f.c_str());
+
+        trace_files.clear();
+    }
 
     // if (argc == 0 || !strcmp(argv[0], "start")) {
     //     uint32_t interval = 10000;
@@ -123,24 +168,30 @@ static bool handleAccessMemory(void *arg, Sift::MemoryLockType lock_signal,
 }
 
 static int closeFile(threadid_t threadid) {
+    auto output = thread_data[threadid].output;
+    thread_data[threadid].output = NULL;
+    output->End();
+    delete output;
     return 0;
 }
 
-static int openFile(threadid_t threadid)
+static int openFile(threadid_t threadid, const char *dir)
 {
     if (thread_data[threadid].output) {
         closeFile(threadid);
         ++thread_data[threadid].blocknum;
     }
 
-    auto filename = output_file + ".vcpu" + std::to_string(threadid) + ".sift";
-    auto response = output_file + "_response.vcpu" + std::to_string(threadid) + ".sift";
+    auto filename = string(dir) + "/vcpu"
+                    + std::to_string(threadid) + ".sift";
+    // auto response = string(dir) + "/response.vcpu"
+    //                 + std::to_string(threadid) + ".sift";
 
     thread_data[threadid].output = new Sift::Writer(filename.c_str(),
             [](uint8_t *dst, const uint8_t *src, uint32_t size) {
                 qemu_plugin_virt_mem_rw((uint64_t)src, dst, size, false,
                                         qemu_plugin_in_kernel());
-            }, true, response.c_str(), threadid, false, false, false);
+            }, false, "", threadid, false, false, false);
 
     if (!thread_data[threadid].output->IsOpen()) {
         fprintf(stderr, "[SIFT_RECORDER: %u] Error: "
@@ -163,18 +214,14 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     for (auto i = 0; i < argc; i ++)
         fprintf(stdout, "%s\n", argv[i]);
 
-    auto smp_vcpus = info->system.smp_vcpus;
+    smp_vcpus = info->system.smp_vcpus;
     thread_data.resize(smp_vcpus);
 
     for (auto threadid = 0; threadid < smp_vcpus; threadid ++) {
         thread_data[threadid].tid_ptr = 0;
         thread_data[threadid].thread_num = threadid;
-        thread_data[threadid].bbv = new Bbv();
+        thread_data[threadid].bbv = NULL;
         thread_data[threadid].blocknum = 0;
-        if (openFile(threadid) == -1)
-            return -1;
-
-        assert(thread_data[threadid].output);
         thread_data[threadid].running = true;
     }
 
