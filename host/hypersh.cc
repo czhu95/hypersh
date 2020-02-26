@@ -47,7 +47,11 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             return;
         }
 
+#ifdef DEBUG
+        auto soname = std::string("/lib") + hyper_argv[0] + ".sod";
+#else
         auto soname = std::string("/lib") + hyper_argv[0] + ".so";
+#endif
         auto target_id = qemu_plugin_find_id(soname.c_str());
         if (target_id == QEMU_PLUGIN_ID_NULL) {
             fprintf(stderr, "Unknown/Unloaded plugin %s\n", hyper_argv[0]);
