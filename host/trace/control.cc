@@ -5,7 +5,9 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <atomic>
 
+#include "callbacks.h"
 #include "threads.h"
 #include "globals.h"
 #include "common.h"
@@ -31,6 +33,7 @@ std::mutex access_memory_mtx;
 static int openFile(threadid_t threadid, const char *dir);
 static int closeFile(threadid_t threadid);
 
+static std::atomic_bool reset_done;
 // static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
 //                      uint64_t vaddr, void *udata)
 // {
@@ -95,10 +98,20 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
             trace_files.push_back(filename);
             trace_files.push_back(response);
         }
+
         for (threadid_t i = 0; i < smp_vcpus; i ++)
             openFile(i, dir);
 
+        qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+        qemu_plugin_tb_flush();
+
     } else if (!strcmp(argv[optind], "stop")) {
+        reset_done = false;
+        qemu_plugin_reset(id, [](qemu_plugin_id_t id) { reset_done = true; });
+        while (!reset_done) ;
+
+        fprintf(stderr, "Reset done.\n");
+
         for (threadid_t i = 0; i < smp_vcpus; i ++)
             closeFile(i);
 
