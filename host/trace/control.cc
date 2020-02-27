@@ -33,7 +33,8 @@ std::mutex access_memory_mtx;
 static int openFile(threadid_t threadid, const char *dir);
 static int closeFile(threadid_t threadid);
 
-static std::atomic_bool reset_done;
+static bool recording = false;
+
 // static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
 //                      uint64_t vaddr, void *udata)
 // {
@@ -53,15 +54,68 @@ static std::atomic_bool reset_done;
 //     }
 // }
 
+static void recorder_start(qemu_plugin_id_t id, char *dir)
+{
+    if (recording) {
+        PLUGIN_PRINT_ERROR("already recording.");
+        return;
+    }
+
+    if (dir == NULL) {
+        dir = output_dir_template;
+        strcpy(dir + strlen(dir) - 6, "XXXXXX");
+        dir = mkdtemp(dir);
+        assert(dir != NULL);
+    }
+
+    /* Opening a fifo file blocks on waiting for a reader.
+     * We Create fifos for all vcpus before open them, so we can invoke
+     * the simulator process at some time in between. */
+    for (threadid_t i = 0; i < smp_vcpus; i ++) {
+        auto filename = string(dir) + "/vcpu"
+                        + std::to_string(i) + ".sift";
+        auto response = string(dir) + "/response.vcpu"
+                        + std::to_string(i) + ".sift";
+
+        mkfifo(filename.c_str(), 0600);
+        mkfifo(response.c_str(), 0600);
+
+        trace_files.push_back(filename);
+        trace_files.push_back(response);
+    }
+
+    PLUGIN_PRINT_INFO("recording to %s", dir);
+    for (threadid_t i = 0; i < smp_vcpus; i ++)
+        openFile(i, dir);
+
+    recording = true;
+    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+    qemu_plugin_tb_flush();
+}
+
+static void recorder_stop(qemu_plugin_id_t id)
+{
+    if (!recording) {
+        PLUGIN_PRINT_ERROR("not recording");
+        return;
+    }
+    qemu_plugin_reset(id, [](qemu_plugin_id_t id) {
+        QEMU_VCPU_FOREACH( closeFile(threadid); );
+        trace_files.clear();
+        recording = false;
+        PLUGIN_PRINT_INFO("Successfully reset trace.");
+    });
+}
+
 QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
                                            int argc, char **argv)
 {
-    fprintf(stdout, "trace control\n");
-    for (auto i = 0; i < argc; i ++)
-        fprintf(stdout, "%s\n", argv[i]);
+    // PLUGIN_PRINT_INFO("trace control");
+    // for (auto i = 0; i < argc; i ++)
+    //     PLUGIN_PRINT_INFO("%s", argv[i]);
 
     if (argc == 0 || strcmp(argv[0], "trace")) {
-        fprintf(stderr, "Misdirected control for %s\n", argv[0]);
+        PLUGIN_PRINT_ERROR("Misdirected control for %s", argv[0]);
         return -1;
     }
 
@@ -76,49 +130,9 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
     }
 
     if (optind >= argc || !strcmp(argv[optind], "start")) {
-        if (dir == NULL) {
-            dir = output_dir_template;
-            strcpy(dir + strlen(dir) - 6, "XXXXXX");
-            dir = mkdtemp(dir);
-            assert(dir != NULL);
-        }
-
-        /* Opening a fifo file blocks on waiting for a reader.
-         * We Create fifos for all vcpus before open them, so we can invoke
-         * the simulator process at some time in between. */
-        for (threadid_t i = 0; i < smp_vcpus; i ++) {
-            auto filename = string(dir) + "/vcpu"
-                            + std::to_string(i) + ".sift";
-            auto response = string(dir) + "/response.vcpu"
-                            + std::to_string(i) + ".sift";
-
-            mkfifo(filename.c_str(), 0600);
-            mkfifo(response.c_str(), 0600);
-
-            trace_files.push_back(filename);
-            trace_files.push_back(response);
-        }
-
-        for (threadid_t i = 0; i < smp_vcpus; i ++)
-            openFile(i, dir);
-
-        qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
-        qemu_plugin_tb_flush();
-
+        recorder_start(id, dir);
     } else if (!strcmp(argv[optind], "stop")) {
-        reset_done = false;
-        qemu_plugin_reset(id, [](qemu_plugin_id_t id) { reset_done = true; });
-        while (!reset_done) ;
-
-        fprintf(stderr, "Reset done.\n");
-
-        for (threadid_t i = 0; i < smp_vcpus; i ++)
-            closeFile(i);
-
-        for (const auto& f : trace_files)
-            unlink(f.c_str());
-
-        trace_files.clear();
+        recorder_stop(id);
     }
 
     return 0;
@@ -139,7 +153,7 @@ static bool handleAccessMemory(void *arg, Sift::MemoryLockType lock_signal,
         qemu_plugin_virt_mem_rw(d_addr, data_buffer, data_size, true,
                                 qemu_plugin_in_kernel());
     } else {
-        fprintf(stderr, "Error: invalid memory operation type\n");
+        PLUGIN_PRINT_ERROR("Error: invalid memory operation type.");
         return false;
     }
 
@@ -177,9 +191,9 @@ static int openFile(threadid_t threadid, const char *dir)
             }, true, response.c_str(), threadid, false, false, false);
 
     if (!thread_data[threadid].output->IsOpen()) {
-        fprintf(stderr, "[SIFT_RECORDER: %u] Error: "
-                "Unable to open the output file %s\n",
-                threadid, filename.c_str());
+        PLUGIN_PRINT_VCPU_ERROR(threadid, "Error: "
+                "Unable to open the output file %s",
+                filename.c_str());
         return -1;
     }
 
@@ -193,9 +207,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
                                            const qemu_info_t *info,
                                            int argc, char **argv)
 {
-    fprintf(stdout, "trace installed with id %lu\n", id);
-    for (auto i = 0; i < argc; i ++)
-        fprintf(stdout, "%s\n", argv[i]);
+    PLUGIN_PRINT_INFO("trace installed with id %lu", id);
 
     smp_vcpus = info->system.smp_vcpus;
     thread_data.resize(smp_vcpus);

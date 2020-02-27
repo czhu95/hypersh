@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "sift_writer.h"
-#include "globals.h"
 #include "bbv_count.h"
 
 typedef uint32_t threadid_t;

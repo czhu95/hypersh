@@ -1,17 +1,15 @@
 #include "callbacks.h"
 
-#include "globals.h"
 #include "threads.h"
-#include "common.h"
 
-static const char * SiftModeStr[] = {
-    "ModeUnknown", "ModeIcount", "ModeMemory", "ModeDetailed", "ModeStop" };
+// static const char * SiftModeStr[] = {
+//     "ModeUnknown", "ModeIcount", "ModeMemory", "ModeDetailed", "ModeStop" };
 
-static void setInstrumentationMode(Sift::Mode mode)
+void setInstrumentationMode(Sift::Mode mode)
 {
-    fprintf(stderr, "Setting instrumentation mode to %s.\n",
-            SiftModeStr[mode]);
-    if (current_mode != mode && mode != Sift::ModeUnknown) {
+    // fprintf(stderr, "Setting instrumentation mode to %s.\n",
+    //         SiftModeStr[mode]);
+    if (false && current_mode != mode && mode != Sift::ModeUnknown) {
         current_mode = mode;
         switch (mode) {
             case Sift::ModeIcount:
@@ -40,10 +38,12 @@ static void countInsns(unsigned int threadid, void *userdata)
 
     thread_data[threadid].icount_reported += count;
     if (thread_data[threadid].icount_reported > FlowControlFF) {
+        control_mtx.lock_shared();
         Sift::Mode mode = thread_data[threadid].output->InstructionCount(
                 thread_data[threadid].icount_reported);
         thread_data[threadid].icount_reported = 0;
         setInstrumentationMode(mode);
+        control_mtx.unlock_shared();
     }
 }
 
