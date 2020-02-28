@@ -170,6 +170,7 @@ void flush(vector<vector<uint32_t>> &maps)
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
+                                           unsigned int vcpu_index,
                                            int argc, char **argv)
 {
     fprintf(stdout, "mcount control\n");

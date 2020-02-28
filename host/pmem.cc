@@ -97,6 +97,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
+                                           unsigned int vcpu_index,
                                            int argc, char **argv)
 {
     fprintf(stdout, "pmem control\n");

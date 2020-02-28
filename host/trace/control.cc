@@ -108,6 +108,7 @@ static void recorder_stop(qemu_plugin_id_t id)
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
+                                           unsigned int vcpu_index,
                                            int argc, char **argv)
 {
     // PLUGIN_PRINT_INFO("trace control");

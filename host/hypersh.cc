@@ -43,7 +43,8 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
         if (!strcmp(hyper_argv[0], "debug")) {
             qemu_plugin_id_t pmem_id = qemu_plugin_find_id("/libpmem.so");
             fprintf(stdout, "%lu\n", pmem_id);
-            qemu_plugin_send_control(pmem_id, hyper_argc - 1, hyper_argv + 1);
+            qemu_plugin_send_control(pmem_id, vcpu_index, hyper_argc - 1, 
+                                     hyper_argv + 1);
             return;
         }
 
@@ -58,8 +59,8 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
             return;
         }
 
-        if (qemu_plugin_send_control(
-                    target_id, hyper_argc, hyper_argv) == -1) {
+        if (qemu_plugin_send_control(target_id, vcpu_index, hyper_argc,
+                                     hyper_argv) == -1) {
             fprintf(stderr, "Failed sending control to %s\n", hyper_argv[0]);
             return;
         }
