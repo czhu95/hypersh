@@ -14,6 +14,10 @@
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
+#define QEMU_VCPU_FOREACH(expr)                                        \
+    qemu_plugin_vcpu_for_each(id,                                      \
+            [](qemu_plugin_id_t id, unsigned int threadid) { expr })
+
 using std::vector;
 using std::string;
 
@@ -90,7 +94,10 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
      * for other vcpus to finish its current block. */
     closeFile(threadid);
     qemu_plugin_reset(id, [](qemu_plugin_id_t id) {
-        QEMU_VCPU_FOREACH( closeFile(threadid); );
+        /* We should be running exclusively in reset callback. */
+        for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++)
+            closeFile(threadid);
+
         for (const auto &f : trace_files)
             unlink(f.c_str());
 

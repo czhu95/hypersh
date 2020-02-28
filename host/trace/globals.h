@@ -9,10 +9,6 @@
 
 #define PLUGIN_NAME "SIFT_RECORDER"
 
-#define QEMU_VCPU_FOREACH(expr)                                        \
-    qemu_plugin_vcpu_for_each(id,                                      \
-            [](qemu_plugin_id_t id, unsigned int threadid) { expr })
-
 #define PLUGIN_PRINT_ERROR(...)                                        \
     fprintf(stderr, "[" PLUGIN_NAME "] " __VA_ARGS__);                 \
     fprintf(stderr, "\n");
