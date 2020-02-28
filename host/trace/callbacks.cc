@@ -47,7 +47,7 @@ static void countInsns(unsigned int threadid, void *userdata)
     }
 }
 
-void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
+void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 {
     if (!any_thread_in_detail) {
         unsigned long n_insns = qemu_plugin_tb_n_insns(tb);
@@ -55,4 +55,18 @@ void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                                              QEMU_PLUGIN_CB_NO_REGS,
                                              (void *)n_insns);
     }
+}
+
+void vcpu_idle_cb(qemu_plugin_id_t id, unsigned int threadid)
+{
+    control_mtx.lock_shared();
+    thread_data[threadid].output->VCPUIdle();
+    control_mtx.unlock_shared();
+}
+
+void vcpu_resume_cb(qemu_plugin_id_t id, unsigned int threadid)
+{
+    control_mtx.lock_shared();
+    thread_data[threadid].output->VCPUResume();
+    control_mtx.unlock_shared();
 }

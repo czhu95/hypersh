@@ -35,25 +35,6 @@ static int closeFile(threadid_t threadid);
 
 static bool recording = false;
 
-// static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo,
-//                      uint64_t vaddr, void *udata)
-// {
-//     // hypercall_pmem_cb(cpu_index, meminfo, vaddr);
-// }
-// 
-// static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
-// {
-//     size_t n = qemu_plugin_tb_n_insns(tb);
-//     size_t i;
-// 
-//     for (i = 0; i < n; i++) {
-//         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
-//         qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem,
-//                                          QEMU_PLUGIN_CB_NO_REGS,
-//                                          QEMU_PLUGIN_MEM_RW, NULL);
-//     }
-// }
-
 static void recorder_start(qemu_plugin_id_t id, char *dir)
 {
     if (recording) {
@@ -89,18 +70,30 @@ static void recorder_start(qemu_plugin_id_t id, char *dir)
         openFile(i, dir);
 
     recording = true;
-    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans_cb);
+    qemu_plugin_register_vcpu_idle_cb(id, vcpu_idle_cb);
+    qemu_plugin_register_vcpu_resume_cb(id, vcpu_resume_cb);
     qemu_plugin_tb_flush();
 }
 
-static void recorder_stop(qemu_plugin_id_t id)
+static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
 {
     if (!recording) {
         PLUGIN_PRINT_ERROR("not recording");
         return;
     }
+    /* We should avoid current recorder/tracer thread blocking others during
+     * qemu_plugin_reset, which has a critical section to synchronize.
+     * We are safe to close our file first, so the remote tracing thread can
+     * end and no other tracer threads will be blocked on us.
+     * qemu_plugin_reset will then be executed on the current vcpu waiting
+     * for other vcpus to finish its current block. */
+    closeFile(threadid);
     qemu_plugin_reset(id, [](qemu_plugin_id_t id) {
         QEMU_VCPU_FOREACH( closeFile(threadid); );
+        for (const auto &f : trace_files)
+            unlink(f.c_str());
+
         trace_files.clear();
         recording = false;
         PLUGIN_PRINT_INFO("Successfully reset trace.");
@@ -111,10 +104,6 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
                                            unsigned int vcpu_index,
                                            int argc, char **argv)
 {
-    // PLUGIN_PRINT_INFO("trace control");
-    // for (auto i = 0; i < argc; i ++)
-    //     PLUGIN_PRINT_INFO("%s", argv[i]);
-
     if (argc == 0 || strcmp(argv[0], "trace")) {
         PLUGIN_PRINT_ERROR("Misdirected control for %s", argv[0]);
         return -1;
@@ -133,9 +122,10 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
     if (optind >= argc || !strcmp(argv[optind], "start")) {
         recorder_start(id, dir);
     } else if (!strcmp(argv[optind], "stop")) {
-        recorder_stop(id);
+        recorder_stop(id, vcpu_index);
     }
 
+    optind = 0;
     return 0;
 }
 
@@ -168,8 +158,12 @@ static bool handleAccessMemory(void *arg, Sift::MemoryLockType lock_signal,
 static int closeFile(threadid_t threadid) {
     auto output = thread_data[threadid].output;
     thread_data[threadid].output = NULL;
-    output->End();
-    delete output;
+    /* closeFile can be called twice for the vcpu thread that
+     * called recorder_stop. */
+    if (output) {
+        output->End();
+        delete output;
+    }
     return 0;
 }
 
@@ -219,6 +213,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
         /* Since there is no cleanup function for plugins, bbv is never
          * deleted until qemu exits. We should be fine as bbv is reused and
          * allocated only once per vcpu. */
+        /* TODO: There is a qemu_plugin_atexit plugin for cleanup. Use that. */
         thread_data[threadid].bbv = new Bbv();
         thread_data[threadid].blocknum = 0;
         thread_data[threadid].running = true;
