@@ -190,7 +190,7 @@ static int openFile(threadid_t threadid, const char *dir)
             [](uint8_t *dst, const uint8_t *src, uint32_t size) {
                 qemu_plugin_virt_mem_rw((uint64_t)src, dst, size, false,
                                         qemu_plugin_in_kernel());
-            }, true, response.c_str(), threadid, false, false, false);
+            }, false, response.c_str(), threadid, false, false, false);
 
     if (!thread_data[threadid].output->IsOpen()) {
         PLUGIN_PRINT_VCPU_ERROR(threadid, "Error: "
