@@ -16,22 +16,19 @@ typedef uint32_t ADDRINT;
 
 typedef struct {
    Sift::Writer *output;
-   uint64_t dyn_addresses[Sift::MAX_DYNAMIC_ADDRESSES];
-   uint32_t num_dyn_addresses;
    Bbv *bbv;
    uint64_t thread_num;
    ADDRINT bbv_base;
    uint64_t bbv_count;
    ADDRINT bbv_last;
    bool bbv_end;
+   uint64_t pc_cacheonly;
    uint64_t blocknum;
    uint64_t icount;
    uint64_t icount_cacheonly;
    uint64_t icount_cacheonly_pending;
    uint64_t icount_detailed;
    uint64_t icount_reported;
-   ADDRINT last_syscall_number;
-   ADDRINT last_syscall_returnval;
    uint64_t flowcontrol_target;
    ADDRINT tid_ptr;
    ADDRINT last_routine;
