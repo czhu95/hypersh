@@ -11,6 +11,7 @@
 #include "threads.h"
 #include "globals.h"
 #include "common.h"
+#include "sim_api.h"
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
@@ -107,6 +108,54 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
     });
 }
 
+static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
+                          const char *mode_str)
+{
+    if (!recording) {
+        PLUGIN_PRINT_ERROR("not recording");
+        return;
+    }
+
+    Sift::Mode mode = Sift::ModeUnknown;
+    if (!strcmp(mode_str, "fastforward"))
+        mode = Sift::ModeIcount;
+    else if (!strcmp(mode_str, "cacheonly"))
+        mode = Sift::ModeMemory;
+    else if (!strcmp(mode_str, "detailed"))
+        mode = Sift::ModeDetailed;
+    else {
+        PLUGIN_PRINT_ERROR("Unknown mode %s.", mode_str);
+        return;
+    }
+
+    if (current_mode == mode)
+        return;
+
+    if (mode == Sift::ModeDetailed) {
+        setInstrumentationMode(mode);
+    }
+
+    switch (mode) {
+        case Sift::ModeMemory:
+            thread_data[threadid].output->Magic(
+                    SIM_CMD_INSTRUMENT_MODE,
+                    SIM_OPT_INSTRUMENT_WARMUP, 0);
+            break;
+        case Sift::ModeIcount:
+            thread_data[threadid].output->Magic(
+                    SIM_CMD_INSTRUMENT_MODE,
+                    SIM_OPT_INSTRUMENT_FASTFORWARD, 0);
+            break;
+        default:
+            PLUGIN_PRINT_ERROR("Mode unsupported.");
+            break;
+    }
+
+    if (mode != Sift::ModeDetailed) {
+        setInstrumentationMode(mode);
+    }
+}
+
 QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
                                            unsigned int vcpu_index,
                                            int argc, char **argv)
@@ -128,6 +177,12 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
 
     if (optind >= argc || !strcmp(argv[optind], "start")) {
         recorder_start(id, dir);
+    } else if (!strcmp(argv[optind], "mode")) {
+        if (++optind >= argc) {
+            PLUGIN_PRINT_ERROR("Missing mode argument.");
+        } else {
+            recorder_mode(id, vcpu_index, argv[optind]);
+        }
     } else if (!strcmp(argv[optind], "stop")) {
         recorder_stop(id, vcpu_index);
     }
