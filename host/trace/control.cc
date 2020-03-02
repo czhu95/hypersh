@@ -136,31 +136,31 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
     return 0;
 }
 
-static bool handleAccessMemory(void *arg, Sift::MemoryLockType lock_signal,
-                               Sift::MemoryOpType mem_op, uint64_t d_addr,
-                               uint8_t *data_buffer, uint32_t data_size)
-{
-    if (lock_signal == Sift::MemLock) {
-        access_memory_mtx.lock();
-    }
-
-    if (mem_op == Sift::MemRead) {
-        qemu_plugin_virt_mem_rw(d_addr, data_buffer, data_size, false,
-                                qemu_plugin_in_kernel());
-    } else if (mem_op == Sift::MemWrite) {
-        qemu_plugin_virt_mem_rw(d_addr, data_buffer, data_size, true,
-                                qemu_plugin_in_kernel());
-    } else {
-        PLUGIN_PRINT_ERROR("Error: invalid memory operation type.");
-        return false;
-    }
-
-    if (lock_signal == Sift::MemLock) {
-        access_memory_mtx.unlock();
-    }
-
-    return true;
-}
+// static bool handleAccessMemory(void *arg, Sift::MemoryLockType lock_signal,
+//                                Sift::MemoryOpType mem_op, uint64_t d_addr,
+//                                uint8_t *data_buffer, uint32_t data_size)
+// {
+//     if (lock_signal == Sift::MemLock) {
+//         access_memory_mtx.lock();
+//     }
+// 
+//     if (mem_op == Sift::MemRead) {
+//         qemu_plugin_virt_mem_rw(d_addr, data_buffer, data_size, false,
+//                                 qemu_plugin_in_kernel());
+//     } else if (mem_op == Sift::MemWrite) {
+//         qemu_plugin_virt_mem_rw(d_addr, data_buffer, data_size, true,
+//                                 qemu_plugin_in_kernel());
+//     } else {
+//         PLUGIN_PRINT_ERROR("Error: invalid memory operation type.");
+//         return false;
+//     }
+// 
+//     if (lock_signal == Sift::MemLock) {
+//         access_memory_mtx.unlock();
+//     }
+// 
+//     return true;
+// }
 
 static int closeFile(threadid_t threadid) {
     auto output = thread_data[threadid].output;
@@ -190,7 +190,7 @@ static int openFile(threadid_t threadid, const char *dir)
             [](uint8_t *dst, const uint8_t *src, uint32_t size) {
                 qemu_plugin_virt_mem_rw((uint64_t)src, dst, size, false,
                                         qemu_plugin_in_kernel());
-            }, false, response.c_str(), threadid, false, false, false);
+            }, false, response.c_str(), threadid, false, false, Sift::Writer::EXPLICIT);
 
     if (!thread_data[threadid].output->IsOpen()) {
         PLUGIN_PRINT_VCPU_ERROR(threadid, "Error: "
@@ -198,9 +198,6 @@ static int openFile(threadid_t threadid, const char *dir)
                 filename.c_str());
         return -1;
     }
-
-    thread_data[threadid].output->setHandleAccessMemoryFunc(
-            handleAccessMemory, reinterpret_cast<void *>(threadid));
 
     return 0;
 }
