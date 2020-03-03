@@ -131,28 +131,43 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
     if (current_mode == mode)
         return;
 
-    if (mode == Sift::ModeDetailed) {
-        setInstrumentationMode(mode);
-    }
+    qemu_plugin_vcpu_simple_cb_t do_mode_switch;
 
     switch (mode) {
         case Sift::ModeMemory:
-            thread_data[threadid].output->Magic(
-                    SIM_CMD_INSTRUMENT_MODE,
-                    SIM_OPT_INSTRUMENT_WARMUP, 0);
+            do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
+                thread_data[cpu_index].output->Magic(
+                        SIM_CMD_INSTRUMENT_MODE,
+                        SIM_OPT_INSTRUMENT_WARMUP, 0);
+                current_mode = Sift::ModeMemory;
+            };
             break;
         case Sift::ModeIcount:
-            thread_data[threadid].output->Magic(
-                    SIM_CMD_INSTRUMENT_MODE,
-                    SIM_OPT_INSTRUMENT_FASTFORWARD, 0);
+            do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
+                thread_data[cpu_index].output->Magic(
+                        SIM_CMD_INSTRUMENT_MODE,
+                        SIM_OPT_INSTRUMENT_FASTFORWARD, 0);
+                current_mode = Sift::ModeIcount;
+            };
             break;
         default:
             PLUGIN_PRINT_ERROR("Mode unsupported.");
-            break;
+            return;
     }
 
-    if (mode != Sift::ModeDetailed) {
-        setInstrumentationMode(mode);
+    /* tb_flush runs asychronously when current cpu is in exclusive mode.
+     * On acquiring the exclusivity, current cpu thread waits other vcpus to
+     * finish their current blocks. This implicit dependency is unknown to
+     * sniper backend, and can easily cause deadlock when performance model
+     * is set (i.e. when simulate in detailed mode). Therefore we only do
+     * tb_flush when we are not in detailed mode. So we flush tb before
+     * entering/after leaving detailed mode. In the latter case this has to
+     * be done via asynchronous tb_flush callback. */
+    if (mode == Sift::ModeDetailed) {
+        do_mode_switch(id, threadid);
+        qemu_plugin_tb_flush();
+    } else {
+        qemu_plugin_vcpu_tb_flush(id, do_mode_switch);
     }
 }
 
