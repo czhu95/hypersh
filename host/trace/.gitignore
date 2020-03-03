@@ -1,0 +1,7 @@
+sift/*.cc
+sift/*.h
+*.o
+*.od
+*.d
+*.a
+*.ad
