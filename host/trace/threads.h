@@ -22,7 +22,9 @@ typedef struct {
    uint64_t bbv_count;
    ADDRINT bbv_last;
    bool bbv_end;
-   uint64_t pc_cacheonly;
+   uint64_t pc;
+   uint64_t br_addr;
+   uint64_t br_fallthrough;
    uint64_t blocknum;
    uint64_t icount;
    uint64_t icount_cacheonly;
