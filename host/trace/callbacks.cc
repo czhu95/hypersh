@@ -13,10 +13,9 @@ static void tb_exec_count_insns(unsigned int threadid, void *userdata)
     thread_data[threadid].icount_reported += count;
     if (thread_data[threadid].icount_reported > FlowControlFF) {
         control_mtx.lock_shared();
-        Sift::Mode mode = thread_data[threadid].output->InstructionCount(
+        thread_data[threadid].output->InstructionCount(
                 thread_data[threadid].icount_reported);
         thread_data[threadid].icount_reported = 0;
-        setInstrumentationMode(mode);
         control_mtx.unlock_shared();
     }
 }
