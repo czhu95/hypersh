@@ -10,17 +10,23 @@
 #define PLUGIN_NAME "SIFT_RECORDER"
 
 #define PLUGIN_PRINT_ERROR(...)                                        \
+do {                                                                   \
     fprintf(stderr, "[" PLUGIN_NAME "] " __VA_ARGS__);                 \
-    fprintf(stderr, "\n");
+    fprintf(stderr, "\n");                                             \
+} while (0)
 
 #define PLUGIN_PRINT_VCPU_ERROR(vcpu, ...)                             \
+do {                                                                   \
     fprintf(stderr, "[" PLUGIN_NAME ": %u] ", vcpu);                   \
     fprintf(stderr, __VA_ARGS__);                                      \
-    fprintf(stderr, "\n");
+    fprintf(stderr, "\n");                                             \
+} while (0)
 
 #define PLUGIN_PRINT_INFO(...)                                         \
+do {                                                                   \
     fprintf(stdout, "[" PLUGIN_NAME "] " __VA_ARGS__);                 \
-    fprintf(stdout, "\n");
+    fprintf(stdout, "\n");                                             \
+} while (0)
 
 extern uint32_t smp_vcpus;
 extern const uint32_t FlowControlFF;
