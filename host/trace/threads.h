@@ -22,9 +22,16 @@ typedef struct {
    uint64_t bbv_count;
    ADDRINT bbv_last;
    bool bbv_end;
-   uint64_t pc;
-   uint64_t br_addr;
-   uint64_t br_fallthrough;
+   ADDRINT pc;
+   ADDRINT br_addr;
+   ADDRINT br_target;
+   ADDRINT br_fallthrough;
+   ADDRINT tb_vaddr1;
+   ADDRINT tb_vaddr2;
+   ADDRINT rd_vaddr1;
+   ADDRINT rd_vaddr2;
+   ADDRINT wr_vaddr;
+   uint64_t wr_size;
    uint64_t blocknum;
    uint64_t icount;
    uint64_t icount_cacheonly;
@@ -35,9 +42,8 @@ typedef struct {
    ADDRINT tid_ptr;
    ADDRINT last_routine;
    ADDRINT last_call_site;
-   bool last_syscall_emulated;
    bool running;
-   bool should_send_threadinfo;
+   ADDRINT pgd;
 } __attribute__((packed,aligned(LINE_SIZE_BYTES))) thread_data_t;
 
 extern std::vector<thread_data_t> thread_data;

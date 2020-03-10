@@ -10,4 +10,7 @@ void vcpu_idle_cb(qemu_plugin_id_t id, unsigned int threadid);
 
 void vcpu_resume_cb(qemu_plugin_id_t id, unsigned int threadid);
 
+void vcpu_interrupt_cb(qemu_plugin_id_t id, unsigned int threadid);
+
+void vcpu_interrupt_ret_cb(qemu_plugin_id_t id, unsigned int threadid);
 #endif

@@ -78,6 +78,8 @@ static void recorder_start(qemu_plugin_id_t id, char *dir)
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans_cb);
     qemu_plugin_register_vcpu_idle_cb(id, vcpu_idle_cb);
     qemu_plugin_register_vcpu_resume_cb(id, vcpu_resume_cb);
+    qemu_plugin_register_vcpu_interrupt_cb(id, vcpu_interrupt_cb);
+    qemu_plugin_register_vcpu_interrupt_ret_cb(id, vcpu_interrupt_ret_cb);
     qemu_plugin_tb_flush();
 }
 
@@ -134,6 +136,14 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
     qemu_plugin_vcpu_simple_cb_t do_mode_switch;
 
     switch (mode) {
+        case Sift::ModeIcount:
+            do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
+                thread_data[cpu_index].output->Magic(
+                        SIM_CMD_INSTRUMENT_MODE,
+                        SIM_OPT_INSTRUMENT_FASTFORWARD, 0);
+                current_mode = Sift::ModeIcount;
+            };
+            break;
         case Sift::ModeMemory:
             do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
                 thread_data[cpu_index].output->Magic(
@@ -142,12 +152,12 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 current_mode = Sift::ModeMemory;
             };
             break;
-        case Sift::ModeIcount:
+        case Sift::ModeDetailed:
             do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
                 thread_data[cpu_index].output->Magic(
                         SIM_CMD_INSTRUMENT_MODE,
-                        SIM_OPT_INSTRUMENT_FASTFORWARD, 0);
-                current_mode = Sift::ModeIcount;
+                        SIM_OPT_INSTRUMENT_DETAILED, 0);
+                current_mode = Sift::ModeDetailed;
             };
             break;
         default:
@@ -257,10 +267,8 @@ static int openFile(threadid_t threadid, const char *dir)
                     + std::to_string(threadid) + ".sift";
 
     thread_data[threadid].output = new Sift::Writer(filename.c_str(),
-            [](uint8_t *dst, const uint8_t *src, uint32_t size) {
-                qemu_plugin_virt_mem_rw((uint64_t)src, dst, size, false,
-                                        qemu_plugin_in_kernel());
-            }, false, response.c_str(), threadid, false, false, Sift::Writer::EXPLICIT);
+            NULL, false, response.c_str(), threadid, false, false,
+            Sift::Writer::EXPLICIT);
 
     if (!thread_data[threadid].output->IsOpen()) {
         PLUGIN_PRINT_VCPU_ERROR(threadid, "Error: "

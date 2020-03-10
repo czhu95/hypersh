@@ -1,9 +1,20 @@
 #include "callbacks.h"
 
+#include <iostream>
 #include "threads.h"
 
 // static const char * SiftModeStr[] = {
 //     "ModeUnknown", "ModeIcount", "ModeMemory", "ModeDetailed", "ModeStop" };
+
+struct tb_info
+{
+
+};
+
+struct insn_info
+{
+
+};
 
 static void tb_exec_count_insns(unsigned int threadid, void *userdata)
 {
@@ -77,9 +88,10 @@ static void mem_send_cacheonly(unsigned int threadid,
     }
 }
 
-static void tb_exec_update_pc(unsigned int threadid, void *userdata)
+static void tb_exec_update_target(unsigned int threadid, void *userdata)
 {
-    thread_data[threadid].pc = (uint64_t)userdata;
+    thread_data[threadid].br_target = (uint64_t)userdata;
+    thread_data[threadid].tb_vaddr1 = (uint64_t)userdata;
 }
 
 static void tb_exec_update_fallthrough(unsigned int threadid, void *userdata)
@@ -87,7 +99,7 @@ static void tb_exec_update_fallthrough(unsigned int threadid, void *userdata)
     thread_data[threadid].br_fallthrough = (uint64_t)userdata;
 }
 
-static void tb_exec_branch(unsigned int threadid, void *userdata)
+static void tb_exec_branch_cacheonly(unsigned int threadid, void *userdata)
 {
     if (thread_data[threadid].br_addr == 0)
         return;
@@ -96,17 +108,17 @@ static void tb_exec_branch(unsigned int threadid, void *userdata)
     auto icount_pending = thread_data[threadid].icount_cacheonly_pending;
 
     assert(thread_data[threadid].br_fallthrough != 0);
-    auto type = thread_data[threadid].pc ==
+    auto type = thread_data[threadid].br_target ==
                 thread_data[threadid].br_fallthrough ?
                 Sift::CacheOnlyBranchNotTaken : Sift::CacheOnlyBranchTaken;
 
-    thread_data[threadid].output->Translate(thread_data[threadid].pc,
+    thread_data[threadid].output->Translate(thread_data[threadid].br_target,
                                             pc_ram_addr);
     /* br_addr: pc of branch instruction
-     * pc: pc of branch target. */
+     * br_target: pc of branch target. */
     thread_data[threadid].output->CacheOnly(icount_pending, type,
                                             thread_data[threadid].br_addr,
-                                            thread_data[threadid].pc);
+                                            thread_data[threadid].br_target);
 
     thread_data[threadid].icount_cacheonly += icount_pending;
     thread_data[threadid].icount_reported += icount_pending;
@@ -121,66 +133,283 @@ static void tb_exec_branch(unsigned int threadid, void *userdata)
     }
 }
 
+static void insn_exec_update_pc(unsigned int threadid, void *userdata)
+{
+    // PLUGIN_PRINT_INFO("InstructionEnd.");
+    thread_data[threadid].output->InstructionEnd();
+    thread_data[threadid].pc = (uint64_t)userdata;
+}
+
+static void insn_exec_pc_next(unsigned int threadid, void *userdata)
+{
+    uint64_t pc_next = (uint64_t)userdata;
+    uint64_t pc = thread_data[threadid].pc;
+
+    // PLUGIN_PRINT_INFO("InstructionBegin:  %lx, %lx", pc, pc_next - pc);
+    thread_data[threadid].output->InstructionBegin(pc, pc_next - pc, false,
+                                                   true);
+}
+
+static void mem_send_detailed(unsigned int threadid,
+                              qemu_plugin_meminfo_t meminfo, uint64_t vaddr,
+                              void *userdata)
+{
+    // bool is_store = qemu_plugin_mem_is_store(meminfo);
+
+    // uint64_t wr_vaddr = thread_data[threadid].wr_vaddr;
+
+    // if (is_store) {
+    //     if (thread_data[threadid].wr_vaddr != 0)
+    //         return;
+    // } else {
+    //     uint64_t rd_vaddr1 = thread_data[threadid].rd_vaddr1;
+    //     uint64_t rd_vaddr2 = thread_data[threadid].rd_vaddr2;
+    //     if (rd_vaddr1 != 0) {
+    //         if (rd_vaddr2 != 0) {
+    //             if (rd_vaddr2 - rd_vaddr1 == 8)
+    //                 thread_data[threadid].rd_vaddr2 = vaddr;
+    //             else if (vaddr - rd_vaddr2 == 8)
+    //                 return;
+    //             else
+    //                 assert(false);
+    //         } else {
+    //             thread_data[threadid].rd_vaddr2 = vaddr;
+    //         }
+    //     } else {
+
+    //     }
+    // }
+    auto hwaddr = qemu_plugin_get_hwaddr(meminfo, vaddr);
+    uint64_t paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
+    thread_data[threadid].output->Translate(vaddr, paddr);
+
+    // PLUGIN_PRINT_INFO("InstructionMem:    %lx -> %lx, %c", vaddr, paddr,
+    //                   qemu_plugin_mem_is_store(meminfo) ? 'w' : 'r');
+
+    thread_data[threadid].output->InstructionMem(vaddr);
+}
+
+static void tb_exec_branch_detailed(unsigned int threadid, void *userdata)
+{
+    if (thread_data[threadid].br_addr == 0)
+        return;
+
+    assert(thread_data[threadid].br_fallthrough != 0);
+    bool taken = thread_data[threadid].br_target !=
+                 thread_data[threadid].br_fallthrough;
+
+    // PLUGIN_PRINT_INFO("InstructionBranch: -> %lx (%s)",
+    //                   thread_data[threadid].br_target,
+    //                   taken ? "taken" : "not taken");
+
+    /* br_addr: pc of branch instruction
+     * br_target: pc of branch target. */
+    thread_data[threadid].output->InstructionBranch(taken);
+
+    thread_data[threadid].br_addr = 0;
+    thread_data[threadid].br_fallthrough = 0;
+
+    thread_data[threadid].output->InstructionEnd();
+
+    /* flush icache if necessary. */
+    if (!qemu_plugin_in_kernel()) {
+        uint64_t pgd = qemu_plugin_page_directory();
+        if (pgd != thread_data[threadid].pgd) {
+            thread_data[threadid].pgd = pgd;
+            thread_data[threadid].output->FlushICache();
+        }
+
+    }
+}
+
+static void tb_exec_send_icache(unsigned int threadid, void *userdata)
+{
+    thread_data[threadid].output->SendICache(thread_data[threadid].tb_vaddr1,
+                                             (uint8_t *)userdata);
+}
+
+static void tb_exec_vaddr2(unsigned int threadid, void *userdata)
+{
+    thread_data[threadid].tb_vaddr2 = (uint64_t)userdata;
+}
+
+static void tb_exec_send_icache2(unsigned int threadid, void *userdata)
+{
+    thread_data[threadid].output->SendICache(thread_data[threadid].tb_vaddr2,
+                                             (uint8_t *)userdata);
+}
+
+// static void tb_exec_flush_icache(unsigned int threadid, void *userdata)
+// {
+//     if (qemu_plugin_in_kernel())
+//         return;
+// 
+//     uint64_t pgd = qemu_plugin_page_directory();
+//     if (pgd != thread_data[threadid].pgd) {
+//         thread_data[threadid].pgd = pgd;
+//         thread_data[threadid].output->FlushICache();
+//     }
+// }
+
+void vcpu_interrupt_cb(qemu_plugin_id_t id, unsigned int threadid)
+{
+    if (current_mode == Sift::ModeDetailed) {
+        // PLUGIN_PRINT_INFO("InstructionEnd.");
+        thread_data[threadid].output->InstructionEnd();
+    }
+}
+
+void vcpu_interrupt_ret_cb(qemu_plugin_id_t id, unsigned int threadid)
+{
+    if (current_mode == Sift::ModeDetailed) {
+        // PLUGIN_PRINT_INFO("InstructionEnd.");
+        thread_data[threadid].output->InstructionEnd();
+    }
+}
+
 void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 {
     auto n_insns = qemu_plugin_tb_n_insns(tb);
-    if (current_mode == Sift::ModeIcount) {
-        qemu_plugin_register_vcpu_tb_exec_cb(tb, tb_exec_count_insns,
-                                             QEMU_PLUGIN_CB_NO_REGS,
-                                             (void *)n_insns);
-    } else if (current_mode == Sift::ModeMemory) {
-        qemu_plugin_insn *insn = NULL;
-        for (size_t i = 0; i < n_insns; i ++) {
-            insn = qemu_plugin_tb_get_insn(tb, i);
-            /* count instructions. */
-            qemu_plugin_register_vcpu_insn_exec_cb(insn, insn_exec_count_insn,
-                                                   QEMU_PLUGIN_CB_NO_REGS,
-                                                   NULL);
+    qemu_plugin_insn *insn = NULL;
+    uint64_t vaddr2;
+    // uint8_t buf[64];
 
-            /* update pc for mem instructions. */
-            /* TODO: mem_update_pc is currently executed once per memop,
-             * instead it should be enough to execute once per mem inst. */
-            qemu_plugin_register_vcpu_mem_cb(
-                    insn, mem_update_pc, QEMU_PLUGIN_CB_NO_REGS,
-                    QEMU_PLUGIN_MEM_RW,
-                    (void *)qemu_plugin_insn_vaddr(insn));
+    switch (current_mode) {
+        case Sift::ModeIcount:
+            qemu_plugin_register_vcpu_tb_exec_cb(tb, tb_exec_count_insns,
+                                                 QEMU_PLUGIN_CB_NO_REGS,
+                                                 (void *)n_insns);
+            break;
+        case Sift::ModeMemory:
+            for (size_t i = 0; i < n_insns; i ++) {
+                insn = qemu_plugin_tb_get_insn(tb, i);
+                /* count instructions. */
+                qemu_plugin_register_vcpu_insn_exec_cb(insn,
+                                                       insn_exec_count_insn,
+                                                       QEMU_PLUGIN_CB_NO_REGS,
+                                                       NULL);
 
-            /* send mem ops. */
-            qemu_plugin_register_vcpu_mem_cb(
-                    insn, mem_send_cacheonly, QEMU_PLUGIN_CB_NO_REGS,
-                    QEMU_PLUGIN_MEM_RW,
-                    (void *)qemu_plugin_insn_ram_addr(insn));
-        }
+                /* update pc for mem instructions. */
+                /* TODO: mem_update_pc is currently executed once per memop,
+                 * instead it should be enough to execute once per mem inst. */
+                qemu_plugin_register_vcpu_mem_cb(
+                        insn, mem_update_pc, QEMU_PLUGIN_CB_NO_REGS,
+                        QEMU_PLUGIN_MEM_RW,
+                        (void *)qemu_plugin_insn_vaddr(insn));
 
-        /* update branch target pc. */
-        qemu_plugin_register_vcpu_tb_exec_cb(
-                tb, tb_exec_update_pc, QEMU_PLUGIN_CB_NO_REGS,
-                (void *)qemu_plugin_tb_next_pc(tb));
+                /* send mem ops. */
+                qemu_plugin_register_vcpu_mem_cb(
+                        insn, mem_send_cacheonly, QEMU_PLUGIN_CB_NO_REGS,
+                        QEMU_PLUGIN_MEM_RW,
+                        (void *)qemu_plugin_insn_ram_addr(insn));
+            }
 
-
-        /* send branch ops. */
-        qemu_plugin_register_vcpu_tb_exec_cb(
-                tb, tb_exec_branch, QEMU_PLUGIN_CB_NO_REGS,
-                (void *)qemu_plugin_tb_next_pc(tb));
-
-        if (qemu_plugin_tb_is_branch(tb)) {
-            assert(insn);
-            /* record pc of branch instruction. */
-            qemu_plugin_register_vcpu_insn_exec_cb(
-                    insn, insn_exec_branch, QEMU_PLUGIN_CB_NO_REGS,
-                    (void *)qemu_plugin_insn_vaddr(insn));
-
-            /* translate branch inst vaddr to paddr. */
-            qemu_plugin_register_vcpu_insn_exec_cb(
-                    insn, insn_exec_branch_ram_addr, QEMU_PLUGIN_CB_NO_REGS,
-                    (void *)qemu_plugin_insn_ram_addr(insn));
-
-            /* record fall through address. */
+            /* update branch target pc. */
             qemu_plugin_register_vcpu_tb_exec_cb(
-                    tb, tb_exec_update_fallthrough,
-                    QEMU_PLUGIN_CB_NO_REGS,
-                    (void *)qemu_plugin_tb_next_pc(tb));
-        }
+                    tb, tb_exec_update_target, QEMU_PLUGIN_CB_NO_REGS,
+                    (void *)qemu_plugin_tb_vaddr(tb));
+
+            /* send branch ops. */
+            qemu_plugin_register_vcpu_tb_exec_cb(
+                    tb, tb_exec_branch_cacheonly, QEMU_PLUGIN_CB_NO_REGS,
+                    (void *)qemu_plugin_insn_ram_addr(insn));
+
+            if (qemu_plugin_tb_is_branch(tb)) {
+                assert(insn);
+                /* record pc of branch instruction. */
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_branch, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_insn_vaddr(insn));
+
+                /* translate branch inst vaddr to paddr. */
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_branch_ram_addr,
+                        QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_insn_ram_addr(insn));
+
+                /* record fall through address. */
+                qemu_plugin_register_vcpu_tb_exec_cb(
+                        tb, tb_exec_update_fallthrough,
+                        QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_tb_next_pc(tb));
+            }
+            break;
+        case Sift::ModeDetailed:
+            for (size_t i = 0; i < n_insns; i ++) {
+                insn = qemu_plugin_tb_get_insn(tb, i);
+                /* update pc */
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_update_pc, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_insn_vaddr(insn));
+
+                /* next instruction pc */
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_pc_next, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_insn_next(insn));
+
+                /* send mem ops. */
+                qemu_plugin_register_vcpu_mem_cb(
+                        insn, mem_send_detailed, QEMU_PLUGIN_CB_NO_REGS,
+                        QEMU_PLUGIN_MEM_RW,
+                        (void *)qemu_plugin_insn_ram_addr(insn));
+
+                // fprintf(stdout, "%lx: ", qemu_plugin_insn_vaddr(insn));
+                // qemu_plugin_insn_bytes(insn, buf);
+                // for (uint8_t *b = buf;
+                //      b < buf + (qemu_plugin_insn_next(insn) -
+                //                 qemu_plugin_insn_vaddr(insn));
+                //      b ++)
+                //     fprintf(stdout, "%x ", (unsigned int)*b);
+                // fprintf(stdout, "\n");
+            }
+
+            /* update branch target pc. */
+            qemu_plugin_register_vcpu_tb_exec_cb(
+                    tb, tb_exec_update_target, QEMU_PLUGIN_CB_NO_REGS,
+                    (void *)qemu_plugin_tb_vaddr(tb));
+
+            /* send branch ops. */
+            qemu_plugin_register_vcpu_tb_exec_cb(
+                    tb, tb_exec_branch_detailed, QEMU_PLUGIN_CB_NO_REGS, NULL);
+
+            /* flush icache if necessary. */
+            // qemu_plugin_register_vcpu_tb_exec_cb(tb, tb_exec_flush_icache,
+            //                                      QEMU_PLUGIN_CB_NO_REGS,
+            //                                      NULL);
+
+            qemu_plugin_register_vcpu_tb_exec_cb(
+                    tb, tb_exec_send_icache, QEMU_PLUGIN_CB_NO_REGS,
+                    (void *)qemu_plugin_tb_haddr(tb));
+
+            vaddr2 = qemu_plugin_tb_vaddr2(tb);
+            if (vaddr2 != (uint64_t)-1) {
+                assert(qemu_plugin_tb_haddr2(tb) != NULL);
+                qemu_plugin_register_vcpu_tb_exec_cb(
+                        tb, tb_exec_vaddr2, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)vaddr2);
+
+                qemu_plugin_register_vcpu_tb_exec_cb(
+                        tb, tb_exec_send_icache2, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_tb_haddr2(tb));
+            }
+
+            if (qemu_plugin_tb_is_branch(tb)) {
+                assert(insn);
+                /* record pc of branch instruction. */
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_branch, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_insn_vaddr(insn));
+
+                /* record fall through address. */
+                qemu_plugin_register_vcpu_tb_exec_cb(
+                        tb, tb_exec_update_fallthrough,
+                        QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_tb_next_pc(tb));
+            }
+            break;
+
+        default:
+            break;
     }
 }
 
