@@ -209,24 +209,13 @@ static void tb_exec_branch_detailed(unsigned int threadid, void *userdata)
 
     thread_data[threadid].br_addr = 0;
     thread_data[threadid].br_fallthrough = 0;
-
-    thread_data[threadid].output->InstructionEnd();
-
-    /* flush icache if necessary. */
-    if (!qemu_plugin_in_kernel()) {
-        uint64_t pgd = qemu_plugin_page_directory();
-        if (pgd != thread_data[threadid].pgd) {
-            thread_data[threadid].pgd = pgd;
-            thread_data[threadid].output->FlushICache();
-        }
-
-    }
 }
 
 static void tb_exec_send_icache(unsigned int threadid, void *userdata)
 {
+    uint64_t pgd = qemu_plugin_in_kernel() ? 0 : qemu_plugin_page_directory();
     thread_data[threadid].output->SendICache(thread_data[threadid].tb_vaddr1,
-                                             (uint8_t *)userdata);
+                                             (uint8_t *)userdata, pgd);
 }
 
 static void tb_exec_vaddr2(unsigned int threadid, void *userdata)
@@ -236,8 +225,9 @@ static void tb_exec_vaddr2(unsigned int threadid, void *userdata)
 
 static void tb_exec_send_icache2(unsigned int threadid, void *userdata)
 {
+    uint64_t pgd = qemu_plugin_in_kernel() ? 0 : qemu_plugin_page_directory();
     thread_data[threadid].output->SendICache(thread_data[threadid].tb_vaddr2,
-                                             (uint8_t *)userdata);
+                                             (uint8_t *)userdata, pgd);
 }
 
 // static void tb_exec_flush_icache(unsigned int threadid, void *userdata)
