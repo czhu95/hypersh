@@ -26,7 +26,7 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                             uint64_t a6, uint64_t a7, uint64_t a8)
 {
     if (num == HYPERCALL_MAGIC) {
-        if (!qemu_plugin_virt_mem_rw(a1, buf, 127, false, false)) {
+        if (!qemu_plugin_virt_mem_rw(a1, buf, 127, false)) {
             fprintf(stderr,
                     "Fail to read guest virtual memory 0x%" PRIx64 "\n", a1);
             return;
