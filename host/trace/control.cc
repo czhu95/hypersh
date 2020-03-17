@@ -106,6 +106,7 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
 
         trace_files.clear();
         recording = false;
+        qemu_plugin_set_slomo_rate(1);
         PLUGIN_PRINT_INFO("Successfully reset trace.");
     });
 }
@@ -141,6 +142,7 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 thread_data[cpu_index].output->Magic(
                         SIM_CMD_INSTRUMENT_MODE,
                         SIM_OPT_INSTRUMENT_FASTFORWARD, 0);
+                qemu_plugin_set_slomo_rate(1);
                 current_mode = Sift::ModeIcount;
             };
             break;
@@ -149,6 +151,7 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 thread_data[cpu_index].output->Magic(
                         SIM_CMD_INSTRUMENT_MODE,
                         SIM_OPT_INSTRUMENT_WARMUP, 0);
+                qemu_plugin_set_slomo_rate(1);
                 current_mode = Sift::ModeMemory;
             };
             break;
@@ -157,6 +160,7 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 thread_data[cpu_index].output->Magic(
                         SIM_CMD_INSTRUMENT_MODE,
                         SIM_OPT_INSTRUMENT_DETAILED, 0);
+                qemu_plugin_set_slomo_rate(1000);
                 current_mode = Sift::ModeDetailed;
             };
             break;
