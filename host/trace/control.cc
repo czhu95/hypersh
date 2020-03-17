@@ -75,6 +75,7 @@ static void recorder_start(qemu_plugin_id_t id, char *dir)
         openFile(i, dir);
 
     recording = true;
+    current_mode = Sift::ModeIcount;
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans_cb);
     qemu_plugin_register_vcpu_idle_cb(id, vcpu_idle_cb);
     qemu_plugin_register_vcpu_resume_cb(id, vcpu_resume_cb);
