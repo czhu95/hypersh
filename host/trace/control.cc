@@ -81,6 +81,7 @@ static void recorder_start(qemu_plugin_id_t id, char *dir)
     qemu_plugin_register_vcpu_resume_cb(id, vcpu_resume_cb);
     qemu_plugin_register_vcpu_interrupt_cb(id, vcpu_interrupt_cb);
     qemu_plugin_register_vcpu_interrupt_ret_cb(id, vcpu_interrupt_ret_cb);
+    qemu_plugin_register_vcpu_syscall_cb(id, vcpu_syscall_cb);
     qemu_plugin_tb_flush();
 }
 

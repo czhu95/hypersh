@@ -1,6 +1,7 @@
 #include "callbacks.h"
 
 #include <iostream>
+#include <syscall.h>
 #include "threads.h"
 
 // static const char * SiftModeStr[] = {
@@ -265,6 +266,27 @@ void vcpu_interrupt_ret_cb(qemu_plugin_id_t id, unsigned int threadid)
         // PLUGIN_PRINT_INFO("InstructionEnd.");
         thread_data[threadid].output->InstructionEnd();
     }
+}
+
+static inline bool syscall_is_exec(int64_t num)
+{
+    return num == SYS_execve || num == SYS_execveat;
+}
+
+void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
+                     int64_t num, uint64_t a1, uint64_t a2,
+                     uint64_t a3, uint64_t a4, uint64_t a5,
+                     uint64_t a6, uint64_t a7, uint64_t a8)
+{
+    if (syscall_is_exec(num) && current_mode == Sift::ModeDetailed) {
+        auto pgd = qemu_plugin_page_directory();
+        /* We should be safe invalidating icache of other vcpus, as current
+         * user process is making a execve syscall so is not using multiple
+         * vcpus. */
+        for (unsigned int threadid = 0; threadid < smp_vcpus; threadid ++)
+            thread_data[threadid].output->FlushICache(pgd);
+    }
+
 }
 
 void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
