@@ -4,6 +4,8 @@
 #include <syscall.h>
 #include "threads.h"
 
+#define VERBOSE 0
+
 // static const char * SiftModeStr[] = {
 //     "ModeUnknown", "ModeIcount", "ModeMemory", "ModeDetailed", "ModeStop" };
 
@@ -136,9 +138,12 @@ static void tb_exec_branch_cacheonly(unsigned int threadid, void *userdata)
 
 static void insn_exec_update_pc(unsigned int threadid, void *userdata)
 {
-    // PLUGIN_PRINT_INFO("InstructionEnd.");
+#if VERBOSE > 1
+    PLUGIN_PRINT_INFO("InstructionEnd.");
+#endif
     thread_data[threadid].output->InstructionEnd();
     thread_data[threadid].pc = (uint64_t)userdata;
+    thread_data[threadid].icount_detailed ++;
 }
 
 static void insn_exec_pc_next(unsigned int threadid, void *userdata)
@@ -146,7 +151,9 @@ static void insn_exec_pc_next(unsigned int threadid, void *userdata)
     uint64_t pc_next = (uint64_t)userdata;
     uint64_t pc = thread_data[threadid].pc;
 
-    // PLUGIN_PRINT_INFO("InstructionBegin:  %lx, %lx", pc, pc_next - pc);
+#if VERBOSE > 1
+    PLUGIN_PRINT_INFO("InstructionBegin:  %lx, %lx", pc, pc_next - pc);
+#endif
     thread_data[threadid].output->InstructionBegin(pc, pc_next - pc, false,
                                                    true);
 }
@@ -184,8 +191,10 @@ static void mem_send_detailed(unsigned int threadid,
     uint64_t paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
     thread_data[threadid].output->Translate(vaddr, paddr);
 
-    // PLUGIN_PRINT_INFO("InstructionMem:    %lx -> %lx, %c", vaddr, paddr,
-    //                   qemu_plugin_mem_is_store(meminfo) ? 'w' : 'r');
+#if VERBOSE > 1
+    PLUGIN_PRINT_INFO("InstructionMem:    %lx -> %lx, %c", vaddr, paddr,
+                      qemu_plugin_mem_is_store(meminfo) ? 'w' : 'r');
+#endif
 
     thread_data[threadid].output->InstructionMem(vaddr);
 }
@@ -199,9 +208,11 @@ static void tb_exec_branch_detailed(unsigned int threadid, void *userdata)
     bool taken = thread_data[threadid].br_target !=
                  thread_data[threadid].br_fallthrough;
 
-    // PLUGIN_PRINT_INFO("InstructionBranch: -> %lx (%s)",
-    //                   thread_data[threadid].br_target,
-    //                   taken ? "taken" : "not taken");
+#if VERBOSE > 1
+    PLUGIN_PRINT_INFO("InstructionBranch: -> %lx (%s)",
+                      thread_data[threadid].br_target,
+                      taken ? "taken" : "not taken");
+#endif
 
     /* br_addr: pc of branch instruction
      * br_target: pc of branch target. */
@@ -245,7 +256,10 @@ static void tb_exec_send_icache2(unsigned int threadid, void *userdata)
 void vcpu_interrupt_cb(qemu_plugin_id_t id, unsigned int threadid)
 {
     if (current_mode == Sift::ModeDetailed) {
-        // PLUGIN_PRINT_INFO("InstructionEnd.");
+#if VERBOSE > 1
+        PLUGIN_PRINT_INFO("Int @icount = %lu", thread_data[threadid].icount_detailed);
+        PLUGIN_PRINT_INFO("InstructionEnd.");
+#endif
         thread_data[threadid].output->InstructionEnd();
     }
 }
@@ -253,7 +267,9 @@ void vcpu_interrupt_cb(qemu_plugin_id_t id, unsigned int threadid)
 void vcpu_interrupt_ret_cb(qemu_plugin_id_t id, unsigned int threadid)
 {
     if (current_mode == Sift::ModeDetailed) {
-        // PLUGIN_PRINT_INFO("InstructionEnd.");
+#if VERBOSE > 1
+        PLUGIN_PRINT_INFO("InstructionEnd.");
+#endif
         thread_data[threadid].output->InstructionEnd();
     }
 }
@@ -284,7 +300,9 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
     auto n_insns = qemu_plugin_tb_n_insns(tb);
     qemu_plugin_insn *insn = NULL;
     uint64_t vaddr2;
-    // uint8_t buf[64];
+#if VERBOSE > 0
+    uint8_t buf[64];
+#endif
 
     switch (current_mode) {
         case Sift::ModeIcount:
@@ -365,14 +383,16 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                         QEMU_PLUGIN_MEM_RW,
                         (void *)qemu_plugin_insn_ram_addr(insn));
 
-                // fprintf(stdout, "%lx: ", qemu_plugin_insn_vaddr(insn));
-                // qemu_plugin_insn_bytes(insn, buf);
-                // for (uint8_t *b = buf;
-                //      b < buf + (qemu_plugin_insn_next(insn) -
-                //                 qemu_plugin_insn_vaddr(insn));
-                //      b ++)
-                //     fprintf(stdout, "%x ", (unsigned int)*b);
-                // fprintf(stdout, "\n");
+#if VERBOSE > 0
+                fprintf(stdout, "%lx: ", qemu_plugin_insn_vaddr(insn));
+                qemu_plugin_insn_bytes(insn, buf);
+                for (uint8_t *b = buf;
+                     b < buf + (qemu_plugin_insn_next(insn) -
+                                qemu_plugin_insn_vaddr(insn));
+                     b ++)
+                    fprintf(stdout, "%x ", (unsigned int)*b);
+                fprintf(stdout, "\n");
+#endif
             }
 
             /* update branch target pc. */
