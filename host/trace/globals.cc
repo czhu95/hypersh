@@ -1,6 +1,7 @@
 #include "globals.h"
 
 const uint32_t FlowControlFF = 100000;
+const uint32_t FlowControl = 1000;
 Sift::Mode current_mode = Sift::ModeIcount;
 bool any_thread_in_detail = false;
 std::shared_mutex control_mtx;

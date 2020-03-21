@@ -30,6 +30,7 @@ do {                                                                   \
 
 extern uint32_t smp_vcpus;
 extern const uint32_t FlowControlFF;
+extern const uint32_t FlowControl;
 extern Sift::Mode current_mode;
 extern bool any_thread_in_detail;
 extern std::shared_mutex control_mtx;

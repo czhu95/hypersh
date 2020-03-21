@@ -142,8 +142,16 @@ static void insn_exec_update_pc(unsigned int threadid, void *userdata)
     PLUGIN_PRINT_INFO("InstructionEnd.");
 #endif
     thread_data[threadid].output->InstructionEnd();
+
     thread_data[threadid].pc = (uint64_t)userdata;
     thread_data[threadid].icount_detailed ++;
+
+    if (thread_data[threadid].icount_detailed >
+        thread_data[threadid].flowcontrol_target)
+    {
+        thread_data[threadid].output->Sync();
+        thread_data[threadid].flowcontrol_target += FlowControl;
+    }
 }
 
 static void insn_exec_pc_next(unsigned int threadid, void *userdata)
