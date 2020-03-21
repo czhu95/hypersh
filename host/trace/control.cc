@@ -40,6 +40,26 @@ static int closeFile(threadid_t threadid);
 
 static bool recording = false;
 
+static void thread_data_reset()
+{
+    for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
+        thread_data[threadid].thread_num = threadid;
+        thread_data[threadid].output = NULL;
+        thread_data[threadid].pc = 0UL;
+        thread_data[threadid].br_addr = 0UL;
+        thread_data[threadid].br_target = 0UL;
+        thread_data[threadid].br_fallthrough = 0UL;
+        thread_data[threadid].tb_vaddr1 = 0UL;
+        thread_data[threadid].tb_vaddr2 = 0UL;
+        thread_data[threadid].icount = 0UL;
+        thread_data[threadid].icount_cacheonly = 0UL;
+        thread_data[threadid].icount_cacheonly_pending = 0UL;
+        thread_data[threadid].icount_detailed = 0UL;
+        thread_data[threadid].icount_reported = 0UL;
+        thread_data[threadid].flowcontrol_target = 0UL;
+    }
+}
+
 static void recorder_start(qemu_plugin_id_t id, char *dir)
 {
     if (recording) {
@@ -53,6 +73,8 @@ static void recorder_start(qemu_plugin_id_t id, char *dir)
         dir = mkdtemp(dir);
         assert(dir != NULL);
     }
+
+    thread_data_reset();
 
     /* Opening a fifo file blocks on waiting for a reader.
      * We Create fifos for all vcpus before open them, so we can invoke
@@ -294,18 +316,6 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
 
     smp_vcpus = info->system.smp_vcpus;
     thread_data.resize(smp_vcpus);
-
-    for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
-        thread_data[threadid].tid_ptr = 0;
-        thread_data[threadid].thread_num = threadid;
-        /* Since there is no cleanup function for plugins, bbv is never
-         * deleted until qemu exits. We should be fine as bbv is reused and
-         * allocated only once per vcpu. */
-        /* TODO: There is a qemu_plugin_atexit plugin for cleanup. Use that. */
-        thread_data[threadid].bbv = new Bbv();
-        thread_data[threadid].blocknum = 0;
-        thread_data[threadid].running = true;
-    }
 
     return 0;
 }
