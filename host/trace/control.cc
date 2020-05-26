@@ -3,9 +3,13 @@
 #include <string.h>
 #include <vector>
 #include <assert.h>
+#include <map>
+#include <algorithm>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <atomic>
+#include <iostream>
+#include <iomanip>
 
 #include "callbacks.h"
 #include "threads.h"
@@ -57,6 +61,13 @@ static void thread_data_reset()
         thread_data[threadid].icount_detailed = 0UL;
         thread_data[threadid].icount_reported = 0UL;
         thread_data[threadid].flowcontrol_target = 0UL;
+        thread_data[threadid].loads = 0UL;
+        thread_data[threadid].stores = 0UL;
+        thread_data[threadid].icount_user = 0UL;
+        thread_data[threadid].icount_other = 0UL;
+        thread_data[threadid].enabled = true;
+
+        block_cnt[threadid].clear();
     }
 }
 
@@ -104,6 +115,7 @@ static void recorder_start(qemu_plugin_id_t id, char *dir)
     qemu_plugin_register_vcpu_interrupt_cb(id, vcpu_interrupt_cb);
     qemu_plugin_register_vcpu_interrupt_ret_cb(id, vcpu_interrupt_ret_cb);
     qemu_plugin_register_vcpu_syscall_cb(id, vcpu_syscall_cb);
+    qemu_plugin_register_vcpu_syscall_ret_cb(id, vcpu_syscall_ret_cb);
     qemu_plugin_tb_flush();
 }
 
@@ -122,8 +134,36 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
     thread_data[threadid].output->End();
     qemu_plugin_reset(id, [](qemu_plugin_id_t id) {
         /* We should be running exclusively in reset callback. */
-        for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++)
+        for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
             closeFile(threadid);
+            if (current_mode == Sift::ModeDetailed)
+                PLUGIN_PRINT_VCPU_INFO(threadid, "user: %lu, other: %lu, loads: %lu, writes: %lu",
+                                       thread_data[threadid].icount_user,
+                                       thread_data[threadid].icount_other,
+                                       thread_data[threadid].loads,
+                                       thread_data[threadid].stores);
+        }
+
+        // std::multimap<uint64_t, uint64_t, std::greater<uint64_t>> sort_map;
+        // for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
+        //     sort_map.clear();
+        //     std::transform(block_cnt[threadid].begin(), block_cnt[threadid].end(),
+        //                    std::inserter(sort_map, sort_map.begin()),
+        //                    [](const std::pair<uint64_t, uint64_t> &p) {
+        //                        return std::pair<uint64_t, uint64_t>(p.second, p.first);
+        //                    });
+
+        //     PLUGIN_PRINT_VCPU_INFO(threadid, "Hot blocks:");
+        //     int i = 0;
+        //     for (const auto &it: sort_map) {
+        //         std::cout << std::hex << it.second << ": "
+        //                   << std::dec << it.first << ", ";
+        //         if (++i == 10)
+        //             break;
+        //     }
+        //     std::cout << std::endl;
+        // }
+
 
         for (const auto &f : trace_files)
             unlink(f.c_str());
@@ -133,6 +173,22 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
         qemu_plugin_set_slomo_rate(1);
         PLUGIN_PRINT_INFO("Successfully reset trace.");
     });
+}
+
+static void recorder_gmm(qemu_plugin_id_t id, threadid_t threadid,
+                         const char *cmd_str, uint64_t segment, uint64_t arg1)
+{
+    uint64_t cmd;
+    if (!strcmp(cmd_str, "create"))
+        cmd = 0;
+    else if (!strcmp(cmd_str, "assign"))
+        cmd = 1;
+    else {
+        PLUGIN_PRINT_ERROR("Unknown gmm command %s.", cmd_str);
+        return;
+    }
+
+    thread_data[threadid].output->GMMCommand(cmd, segment, arg1);
 }
 
 static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
@@ -169,6 +225,7 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 qemu_plugin_set_slomo_rate(1);
                 current_mode = Sift::ModeIcount;
             };
+            roi_cr3 = qemu_plugin_page_directory();
             break;
         case Sift::ModeMemory:
             do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
@@ -178,15 +235,18 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 qemu_plugin_set_slomo_rate(1);
                 current_mode = Sift::ModeMemory;
             };
+            roi_cr3 = qemu_plugin_page_directory();
             break;
         case Sift::ModeDetailed:
             do_mode_switch = [](qemu_plugin_id_t id, unsigned int cpu_index) {
                 thread_data[cpu_index].output->Magic(
                         SIM_CMD_INSTRUMENT_MODE,
                         SIM_OPT_INSTRUMENT_DETAILED, 0);
-                qemu_plugin_set_slomo_rate(1000);
+                qemu_plugin_set_slomo_rate(50000);
                 current_mode = Sift::ModeDetailed;
             };
+            roi_cr3 = qemu_plugin_page_directory();
+            PLUGIN_PRINT_INFO("CR3: %lx", roi_cr3);
             break;
         default:
             PLUGIN_PRINT_ERROR("Mode unsupported.");
@@ -207,6 +267,31 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
     } else {
         qemu_plugin_vcpu_tb_flush(id, do_mode_switch);
     }
+}
+
+static void recorder_reset(qemu_plugin_id_t id, threadid_t threadid)
+{
+    if (!recording) {
+        PLUGIN_PRINT_ERROR("not recording.");
+        return;
+    }
+
+    // recorder_mode(id, threadid, "fastforward");
+    roi_cr3 = qemu_plugin_page_directory();
+    qemu_plugin_vcpu_tb_flush(id,
+        [](qemu_plugin_id_t id, unsigned int cpu_index) {
+            for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
+                thread_data[threadid].icount = 0UL;
+                thread_data[threadid].icount_cacheonly = 0UL;
+                thread_data[threadid].icount_cacheonly_pending = 0UL;
+                thread_data[threadid].icount_detailed = 0UL;
+                thread_data[threadid].icount_reported = 0UL;
+                thread_data[threadid].loads = 0UL;
+                thread_data[threadid].stores = 0UL;
+                thread_data[threadid].icount_user = 0UL;
+                thread_data[threadid].icount_other = 0UL;
+            }
+    });
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
@@ -238,6 +323,16 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
         }
     } else if (!strcmp(argv[optind], "stop")) {
         recorder_stop(id, vcpu_index);
+    } else if (!strcmp(argv[optind], "reset")) {
+        recorder_reset(id, vcpu_index);
+    } else if (!strcmp(argv[optind], "gmm")) {
+        if (optind + 3 >= argc) {
+            PLUGIN_PRINT_ERROR("Missing gmm argument.");
+        } else {
+            recorder_gmm(id, vcpu_index, argv[optind + 1],
+                         strtol(argv[optind + 2], NULL, 0),
+                         strtol(argv[optind + 3], NULL, 0));
+        }
     }
 
     optind = 0;
@@ -251,7 +346,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
 //     if (lock_signal == Sift::MemLock) {
 //         access_memory_mtx.lock();
 //     }
-// 
+//
 //     if (mem_op == Sift::MemRead) {
 //         qemu_plugin_virt_mem_rw(d_addr, data_buffer, data_size, false,
 //                                 qemu_plugin_in_kernel());
@@ -262,11 +357,11 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
 //         PLUGIN_PRINT_ERROR("Error: invalid memory operation type.");
 //         return false;
 //     }
-// 
+//
 //     if (lock_signal == Sift::MemLock) {
 //         access_memory_mtx.unlock();
 //     }
-// 
+//
 //     return true;
 // }
 
@@ -316,6 +411,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
 
     smp_vcpus = info->system.smp_vcpus;
     thread_data.resize(smp_vcpus);
+    block_cnt.resize(smp_vcpus);
 
     return 0;
 }

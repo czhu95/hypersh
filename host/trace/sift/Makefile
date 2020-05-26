@@ -11,7 +11,7 @@ else
 	TARGET=libsift.a
 endif
 
-CXX = g++
+CXX = g++-7
 AR = ar
 
 SNIPER_TARGET_ARCH ?= intel64

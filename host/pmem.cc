@@ -117,7 +117,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
         uint32_t attr = 0;
         char *filename = NULL;
         int c;
-        while ((c = getopt(argc, argv, "f:kurw")) != -1) {
+        while ((c = getopt(argc, argv, "f:i:kurw")) != -1) {
             switch (c) {
                 case 'k':
                     attr |= HS_PMEM_KERNEL;
@@ -133,6 +133,10 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
                     break;
                 case 'f':
                     filename = optarg;
+                    break;
+                case 'i':
+                    interval = strtol(optarg, NULL, 0);
+                    break;
             }
         }
         optind = 0;

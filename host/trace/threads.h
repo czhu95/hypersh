@@ -36,7 +36,12 @@ typedef struct {
    uint64_t icount_detailed;
    uint64_t icount_reported;
    uint64_t flowcontrol_target;
+   uint64_t loads;
+   uint64_t stores;
    bool running;
+   bool enabled;
+   uint64_t icount_other;
+   uint64_t icount_user;
 } __attribute__((packed,aligned(LINE_SIZE_BYTES))) thread_data_t;
 
 extern std::vector<thread_data_t> thread_data;

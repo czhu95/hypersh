@@ -25,46 +25,58 @@ static void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                             uint64_t a3, uint64_t a4, uint64_t a5,
                             uint64_t a6, uint64_t a7, uint64_t a8)
 {
-    if (num == HYPERCALL_MAGIC) {
-        if (!qemu_plugin_virt_mem_rw(a1, buf, 127, false)) {
-            fprintf(stderr,
-                    "Fail to read guest virtual memory 0x%" PRIx64 "\n", a1);
-            return;
-        }
-        fprintf(stdout, "guest> %s\n", buf);
+    if (num != HYPERCALL_MAGIC)
+        return;
 
+    if (!qemu_plugin_virt_mem_rw(a1, buf, 127, false)) {
+        fprintf(stderr,
+                "Fail to read guest virtual memory 0x%" PRIx64 "\n", a1);
+        return;
+    }
 
-        int hyper_argc;
-        char **hyper_argv;
-        if (!g_shell_parse_argv(buf, &hyper_argc, &hyper_argv, NULL) ||
-            hyper_argc == 0)
-            return;
+    int hyper_argc;
+    char **hyper_argv;
+    std::string soname;
+    qemu_plugin_id_t target_id;
 
-        if (!strcmp(hyper_argv[0], "debug")) {
-            qemu_plugin_id_t pmem_id = qemu_plugin_find_id("/libpmem.so");
-            fprintf(stdout, "%lu\n", pmem_id);
-            qemu_plugin_send_control(pmem_id, vcpu_index, hyper_argc - 1, 
-                                     hyper_argv + 1);
-            return;
-        }
+    if (!g_shell_parse_argv(buf, &hyper_argc, &hyper_argv, NULL) ||
+        hyper_argc == 0)
+        return;
+
+    if (!strcmp(hyper_argv[0], "p")) {
+        fprintf(stdout, "[%u] %s", vcpu_index, buf);
+        goto freev;
+    }
+
+    fprintf(stdout, "[%u] guest> %s\n", vcpu_index, buf);
+
+    if (!strcmp(hyper_argv[0], "debug")) {
+        qemu_plugin_id_t pmem_id = qemu_plugin_find_id("/libpmem.so");
+        fprintf(stdout, "%lu\n", pmem_id);
+        qemu_plugin_send_control(pmem_id, vcpu_index, hyper_argc - 1,
+                                 hyper_argv + 1);
+        goto freev;
+    }
 
 #ifdef DEBUG
-        auto soname = std::string("/lib") + hyper_argv[0] + ".sod";
+    soname = std::string("/lib") + hyper_argv[0] + ".sod";
 #else
-        auto soname = std::string("/lib") + hyper_argv[0] + ".so";
+    soname = std::string("/lib") + hyper_argv[0] + ".so";
 #endif
-        auto target_id = qemu_plugin_find_id(soname.c_str());
-        if (target_id == QEMU_PLUGIN_ID_NULL) {
-            fprintf(stderr, "Unknown/Unloaded plugin %s\n", hyper_argv[0]);
-            return;
-        }
-
-        if (qemu_plugin_send_control(target_id, vcpu_index, hyper_argc,
-                                     hyper_argv) == -1) {
-            fprintf(stderr, "Failed sending control to %s\n", hyper_argv[0]);
-            return;
-        }
+    target_id = qemu_plugin_find_id(soname.c_str());
+    if (target_id == QEMU_PLUGIN_ID_NULL) {
+        fprintf(stderr, "Unknown/Unloaded plugin %s\n", hyper_argv[0]);
+        goto freev;
     }
+
+    if (qemu_plugin_send_control(target_id, vcpu_index, hyper_argc,
+                                 hyper_argv) == -1) {
+        fprintf(stderr, "Failed sending control to %s\n", hyper_argv[0]);
+        goto freev;
+    }
+
+freev:
+    g_strfreev(hyper_argv);
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,

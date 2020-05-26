@@ -1,9 +1,9 @@
 QEMU_PATH = /home/chenzhuo/dev/projects/qemu
-SNIPER_PATH = /home/chenzhuo/dev/projects/sniper
+SNIPER_PATH = /home/chenzhuo/dev/projects/sniper_dev
 SIFT_PATH = $(SNIPER_PATH)/sift
 
 BUILD_DIR = ..
-CXX = g++
+CXX = g++-7
 SRCS := $(wildcard *.cc)
 DEPFILES := $(SRCS:%.cc=%.d)
 
@@ -29,7 +29,7 @@ CXXFLAGS += -I../ -I$(SIFT_DIR) -I$(SNIPER_PATH)/include
 LDFLAGS = -lglib-2.0
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
 
-SNIPER_CXXFLAGS += -std=c++11 -fno-strict-aliasing -fPIC -DTARGET_INTEL64 -Wall -Wextra -Wcast-align -Wno-unused-parameter -Wno-unknown-pragmas -I$(SNIPER_PATH)/common/misc
+SNIPER_CXXFLAGS += -std=c++17 -fno-strict-aliasing -fPIC -DTARGET_INTEL64 -Wall -Wextra -Wcast-align -Wno-unused-parameter -Wno-unknown-pragmas -I$(SNIPER_PATH)/common/misc
 export SNIPER_CXXFLAGS
 
 QEMU_PLUGIN_H := $(QEMU_PATH)/include/qemu/qemu-plugin.h
@@ -50,7 +50,7 @@ $(LN_QEMU_PLUGIN_H):
 $(BUILD_DIR)/$(SONAME): $(OBJECTS) $(LIB_SIFT)
 	$(CXX) -shared -Wl,-soname,$(SONAME) -o $@ $^ $(LDFLAGS)
 
-%.o %.od: %.cc %.d
+%.o %.od: %.cc %.d $(SIFT_FILE)
 	$(CXX) -o $@ -c $< $(CXXFLAGS) $(DEPFLAGS)
 
 $(DEPFILES):
@@ -58,7 +58,7 @@ include $(wildcard $(DEPFILES))
 
 clean:
 	rm -f *.o *.od ../libtrace.sod ../libtrace.so *.d qemu-plugin.h
-	rm -f $(SIFT_DIR)/*.o $(SIFT_DIR)/libsift.a $(SIFT_DIR)/*.od $(SIFT_DIR)/libsift.ad
+	rm -f $(SIFT_DIR)/*.o $(SIFT_DIR)/*.h $(SIFT_DIR)/*.cc $(SIFT_DIR)/libsift.a $(SIFT_DIR)/*.od $(SIFT_DIR)/libsift.ad
 
 .PHONY: all clean
 

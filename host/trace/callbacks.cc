@@ -9,6 +9,14 @@
 // static const char * SiftModeStr[] = {
 //     "ModeUnknown", "ModeIcount", "ModeMemory", "ModeDetailed", "ModeStop" };
 
+static bool in_roi()
+{
+    return true;
+    // return roi_cr3 == 0UL || qemu_plugin_in_kernel() ||
+    //        qemu_plugin_page_directory() == roi_cr3;
+}
+
+
 struct tb_info
 {
 
@@ -34,6 +42,13 @@ static void tb_exec_count_insns(unsigned int threadid, void *userdata)
     }
 }
 
+
+static void tb_exec_hot_blocks(unsigned int threadid, void *userdata)
+{
+    if (qemu_plugin_page_directory() == roi_cr3)
+        block_cnt[threadid][(uint64_t)userdata] ++;
+}
+
 static void insn_exec_count_insn(unsigned int threadid, void *userdata)
 {
     thread_data[threadid].icount_cacheonly_pending ++;
@@ -42,6 +57,13 @@ static void insn_exec_count_insn(unsigned int threadid, void *userdata)
 static void insn_exec_branch(unsigned int threadid, void *userdata)
 {
     thread_data[threadid].br_addr = (uint64_t)userdata;
+}
+
+static void insn_exec_pause(unsigned int threadid, void *userdata)
+{
+    thread_data[threadid].output->Sync();
+    thread_data[threadid].flowcontrol_target =
+        thread_data[threadid].icount_detailed + FlowControl;
 }
 
 static void insn_exec_branch_ram_addr(unsigned int threadid, void *userdata)
@@ -146,6 +168,11 @@ static void insn_exec_update_pc(unsigned int threadid, void *userdata)
     thread_data[threadid].pc = (uint64_t)userdata;
     thread_data[threadid].icount_detailed ++;
 
+    if (qemu_plugin_page_directory() == roi_cr3)
+        thread_data[threadid].icount_user ++;
+    else
+        thread_data[threadid].icount_other ++;
+
     if (thread_data[threadid].icount_detailed >
         thread_data[threadid].flowcontrol_target)
     {
@@ -162,8 +189,17 @@ static void insn_exec_pc_next(unsigned int threadid, void *userdata)
 #if VERBOSE > 1
     PLUGIN_PRINT_INFO("InstructionBegin:  %lx, %lx", pc, pc_next - pc);
 #endif
-    thread_data[threadid].output->InstructionBegin(pc, pc_next - pc, false,
-                                                   true);
+
+    if (in_roi())
+        thread_data[threadid].output->InstructionBegin(pc, pc_next - pc, false,
+                                                       true);
+}
+
+static void insn_exec_itlb(unsigned int threadid, void *userdata)
+{
+    if (in_roi())
+        thread_data[threadid].output->Translate(thread_data[threadid].pc,
+                                                (uint64_t)userdata);
 }
 
 static void mem_send_detailed(unsigned int threadid,
@@ -204,6 +240,14 @@ static void mem_send_detailed(unsigned int threadid,
                       qemu_plugin_mem_is_store(meminfo) ? 'w' : 'r');
 #endif
 
+    bool is_store = qemu_plugin_mem_is_store(meminfo);
+    if (!qemu_plugin_in_kernel() && qemu_plugin_page_directory() == roi_cr3) {
+        if (is_store)
+            thread_data[threadid].stores ++;
+        else
+            thread_data[threadid].loads ++;
+    }
+
     thread_data[threadid].output->InstructionMem(vaddr);
 }
 
@@ -233,8 +277,10 @@ static void tb_exec_branch_detailed(unsigned int threadid, void *userdata)
 static void tb_exec_send_icache(unsigned int threadid, void *userdata)
 {
     uint64_t pgd = qemu_plugin_in_kernel() ? 0 : qemu_plugin_page_directory();
-    thread_data[threadid].output->SendICache(thread_data[threadid].tb_vaddr1,
-                                             (uint8_t *)userdata, pgd);
+    if (in_roi())
+        thread_data[threadid].output->SendICache(
+                thread_data[threadid].tb_vaddr1,
+                (uint8_t *)userdata, pgd);
 }
 
 static void tb_exec_vaddr2(unsigned int threadid, void *userdata)
@@ -245,15 +291,17 @@ static void tb_exec_vaddr2(unsigned int threadid, void *userdata)
 static void tb_exec_send_icache2(unsigned int threadid, void *userdata)
 {
     uint64_t pgd = qemu_plugin_in_kernel() ? 0 : qemu_plugin_page_directory();
-    thread_data[threadid].output->SendICache(thread_data[threadid].tb_vaddr2,
-                                             (uint8_t *)userdata, pgd);
+    if (in_roi())
+        thread_data[threadid].output->SendICache(
+                thread_data[threadid].tb_vaddr2,
+                (uint8_t *)userdata, pgd);
 }
 
 // static void tb_exec_flush_icache(unsigned int threadid, void *userdata)
 // {
 //     if (qemu_plugin_in_kernel())
 //         return;
-// 
+//
 //     uint64_t pgd = qemu_plugin_page_directory();
 //     if (pgd != thread_data[threadid].pgd) {
 //         thread_data[threadid].pgd = pgd;
@@ -274,6 +322,7 @@ void vcpu_interrupt_cb(qemu_plugin_id_t id, unsigned int threadid)
 
 void vcpu_interrupt_ret_cb(qemu_plugin_id_t id, unsigned int threadid)
 {
+
     if (current_mode == Sift::ModeDetailed) {
 #if VERBOSE > 1
         PLUGIN_PRINT_INFO("InstructionEnd.");
@@ -292,7 +341,10 @@ void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
                      uint64_t a3, uint64_t a4, uint64_t a5,
                      uint64_t a6, uint64_t a7, uint64_t a8)
 {
-    if (syscall_is_exec(num) && current_mode == Sift::ModeDetailed) {
+    if (current_mode != Sift::ModeDetailed)
+        return;
+
+    if (syscall_is_exec(num)) {
         auto pgd = qemu_plugin_page_directory();
         /* We should be safe invalidating icache of other vcpus, as current
          * user process is making a execve syscall so is not using multiple
@@ -300,7 +352,17 @@ void vcpu_syscall_cb(qemu_plugin_id_t id, unsigned int vcpu_index,
         for (unsigned int threadid = 0; threadid < smp_vcpus; threadid ++)
             thread_data[threadid].output->FlushICache(pgd);
     }
+}
 
+void vcpu_syscall_ret_cb(qemu_plugin_id_t id, unsigned int threadid,
+                         int64_t num, int64_t ret)
+{
+    if (current_mode != Sift::ModeDetailed)
+        return;
+
+#if VERBOSE > 0
+    PLUGIN_PRINT_VCPU_INFO(threadid, "syscall return");
+#endif
 }
 
 void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
@@ -311,6 +373,10 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 #if VERBOSE > 0
     uint8_t buf[64];
 #endif
+
+    qemu_plugin_register_vcpu_tb_exec_cb(
+            tb, tb_exec_hot_blocks, QEMU_PLUGIN_CB_NO_REGS,
+            (void *)qemu_plugin_tb_vaddr(tb));
 
     switch (current_mode) {
         case Sift::ModeIcount:
@@ -380,6 +446,10 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                         insn, insn_exec_update_pc, QEMU_PLUGIN_CB_NO_REGS,
                         (void *)qemu_plugin_insn_vaddr(insn));
 
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_itlb, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_insn_ram_addr(insn));
+
                 /* next instruction pc */
                 qemu_plugin_register_vcpu_insn_exec_cb(
                         insn, insn_exec_pc_next, QEMU_PLUGIN_CB_NO_REGS,
@@ -388,8 +458,7 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 /* send mem ops. */
                 qemu_plugin_register_vcpu_mem_cb(
                         insn, mem_send_detailed, QEMU_PLUGIN_CB_NO_REGS,
-                        QEMU_PLUGIN_MEM_RW,
-                        (void *)qemu_plugin_insn_ram_addr(insn));
+                        QEMU_PLUGIN_MEM_RW, NULL);
 
 #if VERBOSE > 0
                 fprintf(stdout, "%lx: ", qemu_plugin_insn_vaddr(insn));
@@ -431,6 +500,12 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 qemu_plugin_register_vcpu_tb_exec_cb(
                         tb, tb_exec_send_icache2, QEMU_PLUGIN_CB_NO_REGS,
                         (void *)qemu_plugin_tb_haddr2(tb));
+            }
+
+            if (qemu_plugin_tb_is_pause(tb)) {
+                assert(insn);
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                        insn, insn_exec_pause, QEMU_PLUGIN_CB_NO_REGS, NULL);
             }
 
             if (qemu_plugin_tb_is_branch(tb)) {
