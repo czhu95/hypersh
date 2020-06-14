@@ -66,6 +66,7 @@ static void thread_data_reset()
         thread_data[threadid].icount_user = 0UL;
         thread_data[threadid].icount_other = 0UL;
         thread_data[threadid].enabled = true;
+        thread_data[threadid].idle = true;
 
         block_cnt[threadid].clear();
     }
@@ -144,25 +145,25 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
                                        thread_data[threadid].stores);
         }
 
-        // std::multimap<uint64_t, uint64_t, std::greater<uint64_t>> sort_map;
-        // for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
-        //     sort_map.clear();
-        //     std::transform(block_cnt[threadid].begin(), block_cnt[threadid].end(),
-        //                    std::inserter(sort_map, sort_map.begin()),
-        //                    [](const std::pair<uint64_t, uint64_t> &p) {
-        //                        return std::pair<uint64_t, uint64_t>(p.second, p.first);
-        //                    });
+        std::multimap<uint64_t, uint64_t, std::greater<uint64_t>> sort_map;
+        for (threadid_t threadid = 0; threadid < 1; threadid ++) {
+            sort_map.clear();
+            std::transform(block_cnt[threadid].begin(), block_cnt[threadid].end(),
+                           std::inserter(sort_map, sort_map.begin()),
+                           [](const std::pair<uint64_t, uint64_t> &p) {
+                               return std::pair<uint64_t, uint64_t>(p.second, p.first);
+                           });
 
-        //     PLUGIN_PRINT_VCPU_INFO(threadid, "Hot blocks:");
-        //     int i = 0;
-        //     for (const auto &it: sort_map) {
-        //         std::cout << std::hex << it.second << ": "
-        //                   << std::dec << it.first << ", ";
-        //         if (++i == 10)
-        //             break;
-        //     }
-        //     std::cout << std::endl;
-        // }
+            PLUGIN_PRINT_VCPU_INFO(threadid, "Hot blocks:");
+            int i = 0;
+            for (const auto &it: sort_map) {
+                std::cout << std::hex << it.second << ": "
+                          << std::dec << it.first << ", ";
+                if (++i == 10)
+                    break;
+            }
+            std::cout << std::endl;
+        }
 
 
         for (const auto &f : trace_files)
@@ -242,7 +243,7 @@ static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,
                 thread_data[cpu_index].output->Magic(
                         SIM_CMD_INSTRUMENT_MODE,
                         SIM_OPT_INSTRUMENT_DETAILED, 0);
-                qemu_plugin_set_slomo_rate(50000);
+                qemu_plugin_set_slomo_rate(100000);
                 current_mode = Sift::ModeDetailed;
             };
             roi_cr3 = qemu_plugin_page_directory();

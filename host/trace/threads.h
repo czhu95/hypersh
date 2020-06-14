@@ -38,7 +38,7 @@ typedef struct {
    uint64_t flowcontrol_target;
    uint64_t loads;
    uint64_t stores;
-   bool running;
+   bool idle;
    bool enabled;
    uint64_t icount_other;
    uint64_t icount_user;

@@ -11,9 +11,9 @@
 
 static bool in_roi()
 {
-    return true;
-    // return roi_cr3 == 0UL || qemu_plugin_in_kernel() ||
-    //        qemu_plugin_page_directory() == roi_cr3;
+    // return true;
+    return roi_cr3 == 0UL ||
+           (!qemu_plugin_in_kernel() && qemu_plugin_page_directory() == roi_cr3);
 }
 
 
@@ -61,9 +61,20 @@ static void insn_exec_branch(unsigned int threadid, void *userdata)
 
 static void insn_exec_pause(unsigned int threadid, void *userdata)
 {
-    thread_data[threadid].output->Sync();
-    thread_data[threadid].flowcontrol_target =
-        thread_data[threadid].icount_detailed + FlowControl;
+    if (!thread_data[threadid].idle) {
+        thread_data[threadid].output->Sync();
+        thread_data[threadid].flowcontrol_target =
+            thread_data[threadid].icount_detailed + FlowControl;
+    }
+}
+
+static void insn_exec_cmpxchg(unsigned int threadid, void *userdata)
+{
+    if (!thread_data[threadid].idle) {
+        thread_data[threadid].output->Sync();
+        thread_data[threadid].flowcontrol_target =
+            thread_data[threadid].icount_detailed + FlowControl;
+    }
 }
 
 static void insn_exec_branch_ram_addr(unsigned int threadid, void *userdata)
@@ -166,18 +177,21 @@ static void insn_exec_update_pc(unsigned int threadid, void *userdata)
     thread_data[threadid].output->InstructionEnd();
 
     thread_data[threadid].pc = (uint64_t)userdata;
-    thread_data[threadid].icount_detailed ++;
 
-    if (qemu_plugin_page_directory() == roi_cr3)
-        thread_data[threadid].icount_user ++;
-    else
-        thread_data[threadid].icount_other ++;
+    if (!thread_data[threadid].idle) {
+        thread_data[threadid].icount_detailed ++;
 
-    if (thread_data[threadid].icount_detailed >
-        thread_data[threadid].flowcontrol_target)
-    {
-        thread_data[threadid].output->Sync();
-        thread_data[threadid].flowcontrol_target += FlowControl;
+        if (qemu_plugin_page_directory() == roi_cr3)
+            thread_data[threadid].icount_user ++;
+        else
+            thread_data[threadid].icount_other ++;
+
+        if (thread_data[threadid].icount_detailed >
+            thread_data[threadid].flowcontrol_target)
+        {
+            thread_data[threadid].output->Sync();
+            thread_data[threadid].flowcontrol_target += FlowControl;
+        }
     }
 }
 
@@ -190,9 +204,10 @@ static void insn_exec_pc_next(unsigned int threadid, void *userdata)
     PLUGIN_PRINT_INFO("InstructionBegin:  %lx, %lx", pc, pc_next - pc);
 #endif
 
-    if (in_roi())
+    if (in_roi()) {
         thread_data[threadid].output->InstructionBegin(pc, pc_next - pc, false,
                                                        true);
+    }
 }
 
 static void insn_exec_itlb(unsigned int threadid, void *userdata)
@@ -265,6 +280,19 @@ static void tb_exec_branch_detailed(unsigned int threadid, void *userdata)
                       thread_data[threadid].br_target,
                       taken ? "taken" : "not taken");
 #endif
+
+    if (in_roi()) {
+        if (thread_data[threadid].idle) {
+            thread_data[threadid].output->VCPUResume();
+            thread_data[threadid].idle = false;
+        }
+    } else {
+        if (!thread_data[threadid].idle) {
+            thread_data[threadid].output->InstructionEnd();
+            thread_data[threadid].output->VCPUIdle();
+            thread_data[threadid].idle = true;
+        }
+    }
 
     /* br_addr: pc of branch instruction
      * br_target: pc of branch target. */
@@ -460,6 +488,13 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                         insn, mem_send_detailed, QEMU_PLUGIN_CB_NO_REGS,
                         QEMU_PLUGIN_MEM_RW, NULL);
 
+
+                if (qemu_plugin_insn_is_cmpxchg(insn)) {
+                    qemu_plugin_register_vcpu_insn_exec_cb(
+                            insn, insn_exec_cmpxchg, QEMU_PLUGIN_CB_NO_REGS, NULL);
+                }
+
+
 #if VERBOSE > 0
                 fprintf(stdout, "%lx: ", qemu_plugin_insn_vaddr(insn));
                 qemu_plugin_insn_bytes(insn, buf);
@@ -530,14 +565,20 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
 void vcpu_idle_cb(qemu_plugin_id_t id, unsigned int threadid)
 {
-    control_mtx.lock_shared();
-    thread_data[threadid].output->VCPUIdle();
-    control_mtx.unlock_shared();
+    if (current_mode == Sift::ModeDetailed) {
+        thread_data[threadid].output->InstructionEnd();
+    }
+
+    if (!thread_data[threadid].idle) {
+        thread_data[threadid].output->VCPUIdle();
+        thread_data[threadid].idle = true;
+    }
 }
 
 void vcpu_resume_cb(qemu_plugin_id_t id, unsigned int threadid)
 {
-    control_mtx.lock_shared();
-    thread_data[threadid].output->VCPUResume();
-    control_mtx.unlock_shared();
+    if (thread_data[threadid].idle) {
+        thread_data[threadid].output->VCPUResume();
+        thread_data[threadid].idle = false;
+    }
 }
