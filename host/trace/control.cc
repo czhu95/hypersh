@@ -179,17 +179,21 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
 static void recorder_gmm(qemu_plugin_id_t id, threadid_t threadid,
                          const char *cmd_str, uint64_t segment, uint64_t arg1)
 {
-    uint64_t cmd;
     if (!strcmp(cmd_str, "create"))
-        cmd = 0;
+        thread_data[threadid].output->GMMCommand(0, segment, arg1);
     else if (!strcmp(cmd_str, "assign"))
-        cmd = 1;
+        thread_data[threadid].output->GMMCommand(1, segment, arg1);
+    else if (!strcmp(cmd_str, "message")) {
+        if (current_mode == Sift::ModeDetailed) {
+            Sift::GMMUserMessage msg{10, segment, arg1};
+            thread_data[threadid].output->SendGMMUserMessage(msg);
+        }
+    }
     else {
         PLUGIN_PRINT_ERROR("Unknown gmm command %s.", cmd_str);
         return;
     }
 
-    thread_data[threadid].output->GMMCommand(cmd, segment, arg1);
 }
 
 static void recorder_mode(qemu_plugin_id_t id, threadid_t threadid,

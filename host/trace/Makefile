@@ -1,5 +1,5 @@
 QEMU_PATH = /home/chenzhuo/dev/projects/qemu
-SNIPER_PATH = /home/chenzhuo/dev/projects/sniper_dev
+SNIPER_PATH = /home/chenzhuo/dev/projects/sniper
 SIFT_PATH = $(SNIPER_PATH)/sift
 
 BUILD_DIR = ..
