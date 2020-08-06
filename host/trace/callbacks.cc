@@ -248,6 +248,13 @@ static void mem_send_detailed(unsigned int threadid,
     // }
     auto hwaddr = qemu_plugin_get_hwaddr(meminfo, vaddr);
     uint64_t paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
+    bool is_store = qemu_plugin_mem_is_store(meminfo);
+    if (vaddr == magic && is_store)
+    {
+        PLUGIN_PRINT_INFO("Magic @%lx", magic);
+        thread_data[threadid].output->InstructionAbort();
+    }
+
     thread_data[threadid].output->Translate(vaddr, paddr);
 
 #if VERBOSE > 1
@@ -255,7 +262,6 @@ static void mem_send_detailed(unsigned int threadid,
                       qemu_plugin_mem_is_store(meminfo) ? 'w' : 'r');
 #endif
 
-    bool is_store = qemu_plugin_mem_is_store(meminfo);
     if (!qemu_plugin_in_kernel() && qemu_plugin_page_directory() == roi_cr3) {
         if (is_store)
             thread_data[threadid].stores ++;

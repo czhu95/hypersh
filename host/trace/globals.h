@@ -51,6 +51,7 @@ extern bool any_thread_in_detail;
 extern std::shared_mutex control_mtx;
 
 extern uint64_t roi_cr3;
+extern uint64_t magic;
 
 extern std::vector<std::unordered_map<uint64_t, uint64_t>> block_cnt;
 

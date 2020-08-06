@@ -338,6 +338,9 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_control(qemu_plugin_id_t id,
                          strtol(argv[optind + 2], NULL, 0),
                          strtol(argv[optind + 3], NULL, 0));
         }
+    } else if (!strcmp(argv[optind], "magic")) {
+        magic = strtol(argv[optind + 1], NULL, 0);
+        PLUGIN_PRINT_INFO("magic = %lu", magic);
     }
 
     optind = 0;
