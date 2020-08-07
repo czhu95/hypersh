@@ -29,6 +29,21 @@ static inline void hypersh_printf(const char *format, ... ) {
     hypersh_exec(pbuf);
 }
 
+static inline void trace_start()
+{
+    hypersh_exec("trace start");
+}
+
+static inline void trace_stop()
+{
+    hypersh_exec("trace stop");
+}
+
+static inline void trace_detailed()
+{
+    hypersh_exec("trace mode detailed");
+}
+
 static inline void set_magic() {
     char cmd[50] = "";
     snprintf(cmd, 50, "trace magic %p", &magic);
