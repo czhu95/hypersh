@@ -40,6 +40,11 @@ typedef struct {
    uint64_t stores;
    bool idle;
    bool enabled;
+   bool capturing;
+   bool capture_next_addr1;
+   bool capture_next_addr2;
+   uint64_t captured_addr1;
+   uint64_t captured_addr2;
    uint64_t icount_other;
    uint64_t icount_user;
 } __attribute__((packed,aligned(LINE_SIZE_BYTES))) thread_data_t;

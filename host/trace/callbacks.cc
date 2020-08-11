@@ -70,10 +70,15 @@ static void insn_exec_pause(unsigned int threadid, void *userdata)
 
 static void insn_exec_cmpxchg(unsigned int threadid, void *userdata)
 {
-    if (!thread_data[threadid].idle) {
+    if (!thread_data[threadid].idle && !thread_data[threadid].capturing) {
         thread_data[threadid].output->Sync();
         thread_data[threadid].flowcontrol_target =
             thread_data[threadid].icount_detailed + FlowControl;
+//     } else if (thread_data[threadid].capturing) {
+//         if (!thread_data[threadid].capture_next_addr1)
+//             thread_data[threadid].capture_next_addr1 = true;
+//         else
+//             thread_data[threadid].capture_next_addr2 = true;
     }
 }
 
@@ -204,7 +209,7 @@ static void insn_exec_pc_next(unsigned int threadid, void *userdata)
     PLUGIN_PRINT_INFO("InstructionBegin:  %lx, %lx", pc, pc_next - pc);
 #endif
 
-    if (in_roi()) {
+    if (in_roi() && !thread_data[threadid].capturing) {
         thread_data[threadid].output->InstructionBegin(pc, pc_next - pc, false,
                                                        true);
     }
@@ -249,11 +254,37 @@ static void mem_send_detailed(unsigned int threadid,
     auto hwaddr = qemu_plugin_get_hwaddr(meminfo, vaddr);
     uint64_t paddr = qemu_plugin_hwaddr_device_offset(hwaddr);
     bool is_store = qemu_plugin_mem_is_store(meminfo);
-    if (vaddr == magic && is_store)
-    {
-        PLUGIN_PRINT_INFO("Magic @%lx", magic);
+    if (in_roi() && vaddr == magic && is_store) {
+        // PLUGIN_PRINT_INFO("Magic @%lx", magic);
         thread_data[threadid].output->InstructionAbort();
+        if (!thread_data[threadid].capturing) {
+            thread_data[threadid].capturing = true;
+            thread_data[threadid].capture_next_addr1 = false;
+            thread_data[threadid].capture_next_addr2 = false;
+            thread_data[threadid].captured_addr1 = 0UL;
+            thread_data[threadid].captured_addr2 = 0UL;
+        } else {
+            thread_data[threadid].capturing = false;
+//             Sift::GMMUserMessage msg{10,
+//                 thread_data[threadid].captured_addr1,
+//                 thread_data[threadid].captured_addr2};
+//             thread_data[threadid].output->SendGMMUserMessage(msg);
+        }
+//     } else if (thread_data[threadid].capturing && is_store) {
+//         if (thread_data[threadid].capture_next_addr1 &&
+//             thread_data[threadid].captured_addr1 == 0UL) {
+//             thread_data[threadid].captured_addr1 = vaddr;
+//             PLUGIN_PRINT_VCPU_INFO(threadid, "Captured 1 %lx", vaddr);
+//         } else if (thread_data[threadid].capture_next_addr2) {
+//             if (thread_data[threadid].captured_addr1 == vaddr) {
+//                 thread_data[threadid].capture_next_addr2 = false;
+//             } else if (thread_data[threadid].captured_addr2 == 0UL) {
+//                 thread_data[threadid].captured_addr2 = vaddr;
+//                 PLUGIN_PRINT_VCPU_INFO(threadid, "Captured 2 %lx", vaddr);
+//             }
+//         }
     }
+
 
     thread_data[threadid].output->Translate(vaddr, paddr);
 

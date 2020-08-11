@@ -67,6 +67,11 @@ static void thread_data_reset()
         thread_data[threadid].icount_other = 0UL;
         thread_data[threadid].enabled = true;
         thread_data[threadid].idle = true;
+        thread_data[threadid].capturing = false;
+        thread_data[threadid].capture_next_addr1 = false;
+        thread_data[threadid].capture_next_addr2 = false;
+        thread_data[threadid].captured_addr1 = 0UL;
+        thread_data[threadid].captured_addr2 = 0UL;
 
         block_cnt[threadid].clear();
     }
@@ -132,7 +137,9 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
      * end and no other tracer threads will be blocked on us.
      * qemu_plugin_reset will then be executed on the current vcpu waiting
      * for other vcpus to finish its current block. */
-    thread_data[threadid].output->End();
+    for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++)
+        thread_data[threadid].output->End();
+
     qemu_plugin_reset(id, [](qemu_plugin_id_t id) {
         /* We should be running exclusively in reset callback. */
         for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++) {
