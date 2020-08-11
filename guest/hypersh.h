@@ -59,4 +59,17 @@ static inline void hypercall() {
     : "memory");
 }
 
+static inline void seg_create(void *addr, size_t size)
+{
+   char cmd[50] = "";
+   snprintf(cmd, 50, "trace gmm create %p, 0x%lx", addr, size);
+   hypersh_exec(cmd);
+}
+
+static inline void seg_assign(void *addr, int policy)
+{
+   char cmd[50] = "";
+   snprintf(cmd, 50, "trace gmm assign %p, %d", addr, policy);
+   hypersh_exec(cmd);
+}
 #endif
