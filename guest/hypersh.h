@@ -7,7 +7,7 @@
 
 #define HYPERCALL_MAGIC 712
 
-static int magic = 0;
+extern int magic;
 
 // static pthread_mutex_t m;
 
@@ -52,11 +52,33 @@ static inline void set_magic() {
 
 static inline void hypercall() {
     int src = 0;
+    // volatile int v = magic;
     __asm__ __volatile__ (
     "cmpxchgl %1, %0;\t"
     : "=m" (magic)
     : "r" (src)
     : "memory");
+}
+
+static inline void seg_create(void *addr, size_t size)
+{
+    char cmd[50] = "";
+    snprintf(cmd, 50, "trace gmm create %p 0x%lx", addr, size);
+    hypersh_exec(cmd);
+}
+
+static inline void seg_assign(void *addr, int policy)
+{
+    char cmd[50] = "";
+    snprintf(cmd, 50, "trace gmm assign %p %d", addr, policy);
+    hypersh_exec(cmd);
+}
+
+static inline void user_msg(void *payload1, void *payload2)
+{
+    char cmd[50] = "";
+    snprintf(cmd, 50, "trace gmm message %p %p", payload1, payload2);
+    hypersh_exec(cmd);
 }
 
 #endif
