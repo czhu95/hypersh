@@ -137,7 +137,7 @@ static void recorder_stop(qemu_plugin_id_t id, unsigned int threadid)
      * end and no other tracer threads will be blocked on us.
      * qemu_plugin_reset will then be executed on the current vcpu waiting
      * for other vcpus to finish its current block. */
-    for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++)
+    // for (threadid_t threadid = 0; threadid < smp_vcpus; threadid ++)
         thread_data[threadid].output->End();
 
     qemu_plugin_reset(id, [](qemu_plugin_id_t id) {
