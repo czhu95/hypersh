@@ -174,6 +174,22 @@ static void tb_exec_branch_cacheonly(unsigned int threadid, void *userdata)
     }
 }
 
+static void tb_exec_itlb(unsigned int threadid, void *userdata)
+{
+    if (in_roi())
+        thread_data[threadid].output->Translate(
+                thread_data[threadid].tb_vaddr1, (uint64_t)userdata);
+
+}
+
+static void tb_exec_itlb2(unsigned int threadid, void *userdata)
+{
+    if (in_roi())
+        thread_data[threadid].output->Translate(
+                thread_data[threadid].tb_vaddr2, (uint64_t)userdata);
+
+}
+
 static void insn_exec_update_pc(unsigned int threadid, void *userdata)
 {
 #if VERBOSE > 1
@@ -559,6 +575,10 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
             //                                      NULL);
 
             qemu_plugin_register_vcpu_tb_exec_cb(
+                    tb, tb_exec_itlb, QEMU_PLUGIN_CB_NO_REGS,
+                    (void *)qemu_plugin_tb_ram_addr(tb));
+
+            qemu_plugin_register_vcpu_tb_exec_cb(
                     tb, tb_exec_send_icache, QEMU_PLUGIN_CB_NO_REGS,
                     (void *)qemu_plugin_tb_haddr(tb));
 
@@ -568,6 +588,10 @@ void vcpu_tb_trans_cb(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 qemu_plugin_register_vcpu_tb_exec_cb(
                         tb, tb_exec_vaddr2, QEMU_PLUGIN_CB_NO_REGS,
                         (void *)vaddr2);
+
+                qemu_plugin_register_vcpu_tb_exec_cb(
+                        tb, tb_exec_itlb2, QEMU_PLUGIN_CB_NO_REGS,
+                        (void *)qemu_plugin_tb_ram_addr2(tb));
 
                 qemu_plugin_register_vcpu_tb_exec_cb(
                         tb, tb_exec_send_icache2, QEMU_PLUGIN_CB_NO_REGS,
