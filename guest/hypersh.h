@@ -95,4 +95,11 @@ static inline void gmm_sync()
     hypersh_exec(cmd);
 }
 
+static inline void user_msg_double(void *payload1, double payload2)
+{
+    char cmd[50] = "";
+    snprintf(cmd, 50, "trace gmm message %p %p", payload1, *((void **)&payload2));
+    hypersh_exec(cmd);
+}
+
 #endif
