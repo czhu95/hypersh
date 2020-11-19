@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <stdio.h>
 
 #define HYPERCALL_MAGIC 712
 
@@ -74,10 +75,23 @@ static inline void seg_assign(void *addr, int policy)
     hypersh_exec(cmd);
 }
 
+static inline void seg_delete(void *addr)
+{
+    char cmd[50] = "";
+    snprintf(cmd, 50, "trace gmm delete %p 0", addr);
+    hypersh_exec(cmd);
+}
+
 static inline void user_msg(void *payload1, void *payload2)
 {
     char cmd[50] = "";
     snprintf(cmd, 50, "trace gmm message %p %p", payload1, payload2);
+    hypersh_exec(cmd);
+}
+
+static inline void gmm_sync()
+{
+    char cmd[50] = "trace gmm sync 0 0";
     hypersh_exec(cmd);
 }
 
