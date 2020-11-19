@@ -190,9 +190,17 @@ static void recorder_gmm(qemu_plugin_id_t id, threadid_t threadid,
         thread_data[threadid].output->GMMCommand(0, segment, arg1);
     else if (!strcmp(cmd_str, "assign"))
         thread_data[threadid].output->GMMCommand(1, segment, arg1);
+    else if (!strcmp(cmd_str, "delete"))
+        thread_data[threadid].output->GMMCommand(2, segment, arg1);
     else if (!strcmp(cmd_str, "message")) {
         if (current_mode == Sift::ModeDetailed) {
             Sift::GMMUserMessage msg{10, segment, arg1};
+            thread_data[threadid].output->SendGMMUserMessage(msg);
+        }
+    }
+    else if (!strcmp(cmd_str, "sync")) {
+        if (current_mode == Sift::ModeDetailed) {
+            Sift::GMMUserMessage msg{35, 0, 0};
             thread_data[threadid].output->SendGMMUserMessage(msg);
         }
     }
